@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
 import {
-  ANCHORED_MODES,
   DEFAULT_CONFIG,
+  PRESET_ID_PATTERN,
+  REMOVED_PRESET_IDS,
   THINKING_EFFORTS,
-  type AnchoredMode,
   type IssuePrLanguage,
   type MigrateConfig,
   type ReviewPolicy,
@@ -50,6 +50,23 @@ function asEnum<T extends string>(value: unknown, path: string, allowed: readonl
     throw new ConfigError(`${path} must be one of: ${allowed.join(', ')}`)
   }
   return value as T
+}
+
+function asPresetId(value: unknown, path: string): string {
+  const id = asString(value, path)
+  if ((REMOVED_PRESET_IDS as readonly string[]).includes(id)) {
+    throw new ConfigError(
+      `${path}: preset '${id}' was installed from dsh-anchored-standard, which this Action no longer ships;`
+      + " use 'standard'",
+    )
+  }
+  if (!PRESET_ID_PATTERN.test(id)) {
+    throw new ConfigError(
+      `${path} must be a dsh agent preset id (lowercase letters, digits, and dashes;`
+      + ' shipped ids: standard, minimal, cordis, ptc)',
+    )
+  }
+  return id
 }
 
 /**
@@ -113,7 +130,7 @@ export function parseConfig(raw: unknown): MigrateConfig {
       dsh.reasoningEffort = asEnum(dshRaw.reasoningEffort, 'dsh.reasoningEffort', THINKING_EFFORTS)
     }
     if (dshRaw.mode !== undefined) {
-      dsh.mode = asEnum(dshRaw.mode, 'dsh.mode', ANCHORED_MODES) as AnchoredMode
+      dsh.mode = asPresetId(dshRaw.mode, 'dsh.mode')
     }
   }
 

@@ -5,9 +5,9 @@ import { DEFAULT_CONFIG } from '../../src/config/schema.ts'
 
 test('empty config uses defaults', () => {
   const config = parseConfig({})
-  assert.equal(config.dsh.model, 'deepseek-v4-pro')
+  assert.equal(config.dsh.model, 'deepseek-v4-flash')
   assert.equal(config.dsh.reasoningEffort, 'max')
-  assert.equal(config.dsh.mode, 'anchored-standard')
+  assert.equal(config.dsh.mode, 'standard')
   assert.equal(config.review.policy, 'always')
   assert.equal(config.issuePr.language, 'en')
   assert.equal(config.watch.enabled, true)
@@ -35,13 +35,24 @@ test('defaults stay intact when only language is set', () => {
 
 test('dsh overrides and loop bounds are accepted', () => {
   const config = parseConfig({
-    dsh: { mode: 'zero-anchored-standard', reasoningEffort: 'high' },
+    dsh: { mode: 'minimal', reasoningEffort: 'high' },
     loop: { maxAttempts: 2 },
   })
-  assert.equal(config.dsh.mode, 'zero-anchored-standard')
+  assert.equal(config.dsh.mode, 'minimal')
   assert.equal(config.dsh.reasoningEffort, 'high')
   assert.equal(config.dsh.model, DEFAULT_CONFIG.dsh.model)
   assert.equal(config.loop.maxAttempts, 2)
+})
+
+test('rejects a dsh.mode that is not a preset id', () => {
+  assert.throws(() => parseConfig({ dsh: { mode: 'Standard Mode' } }), /dsh\.mode/)
+})
+
+test('names the removed anchored presets so old configs point at standard', () => {
+  assert.throws(
+    () => parseConfig({ dsh: { mode: 'anchored-standard' } }),
+    /no longer ships; use 'standard'/,
+  )
 })
 
 test('watch.enabled can be turned off', () => {

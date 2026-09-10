@@ -5,10 +5,12 @@ dshVersion: latest
 
 dsh:
   provider: deepseek-official
-  model: deepseek-v4-pro
+  model: deepseek-v4-flash
   thinking: enabled
   reasoningEffort: max
-  mode: anchored-standard
+  # dsh agent preset id. Shipped with @deepseek-ai/dsh-agent-presets:
+  # standard, minimal, cordis, ptc.
+  mode: standard
 
 review:
   # always | skip-if-mechanical-pass

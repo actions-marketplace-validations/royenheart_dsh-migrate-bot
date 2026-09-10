@@ -123,7 +123,7 @@ async function run(ctx, task, io) {
   const selection = defaultModel.currentSelection()
   const provider = process.env.DSH_MIGRATE_PROVIDER || selection.provider
   const model = process.env.DSH_MIGRATE_MODEL || selection.model
-  const mode = process.env.DSH_MIGRATE_MODE || 'anchored-standard'
+  const mode = process.env.DSH_MIGRATE_MODE || 'standard'
   const current = { ...selection, provider, model }
   const progressOf = await loadProgress()
   const startedAt = Date.now()
@@ -148,7 +148,7 @@ async function run(ctx, task, io) {
   const timer = setInterval(() => {
     try {
       const progress = progressOf(agent.session.events, (Date.now() - startedAt) / 1000, {
-        model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-pro',
+        model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-flash',
       })
       io.stderr.write(`dsh-migrate-status: ${JSON.stringify(progress)}\n`)
       const used = soFar + usageUnits(progress)
@@ -170,7 +170,7 @@ async function run(ctx, task, io) {
   clearInterval(timer)
   await sessions.flush(agent.session)
   const finalProgress = progressOf(agent.session.events, (Date.now() - startedAt) / 1000, {
-    model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-pro',
+    model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-flash',
   })
   io.stderr.write(`dsh-migrate-status: ${JSON.stringify(finalProgress)}\n`)
   const used = soFar + usageUnits(finalProgress)

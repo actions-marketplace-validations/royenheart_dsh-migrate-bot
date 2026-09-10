@@ -102,7 +102,7 @@ function defaultSpawn(
 
 /**
  * Drive one dsh headless-style session through the migrate profile.
- * The profile (prepared in the container) mounts anchored-standard and pins V4 Pro / max.
+ * The profile (prepared in the container) mounts the standard preset and pins V4 Flash / max.
  * LLM text stays in the captured stdout and is not printed live.
  */
 export function createDshRunner(options: {

@@ -1,6 +1,6 @@
 # dsh-migrate-bot
 
-GitHub Action that watches [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh-v*`) releases and migrates a third-party plugin: mechanical tests, two dsh review sessions (DeepSeek V4 Pro, thinking `max`, [dsh-anchored-standard](https://github.com/xiaobright/dsh-anchored-standard)), a repair loop, then an Issue and PR only if the plugin tree is dirty.
+GitHub Action that watches [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh-v*`) releases and migrates a third-party plugin: mechanical tests, two dsh review sessions (DeepSeek V4 Flash, thinking `max`, the shipped `standard` agent preset), a repair loop, then an Issue and PR only if the plugin tree is dirty.
 
 Install it by adding a workflow to the plugin repository. It runs on that repo’s GitHub-hosted runners. Provide `DEEPSEEK_API_KEY_DSH_MIGRATE_BOT` as a repository secret (or another name via `api_key_env` / `secrets.apiKeyEnv`).
 
@@ -72,9 +72,9 @@ A run that only wrote `.dsh-migrate/` is treated as clean. Insufficient official
 
 | Field | Default |
 |---|---|
-| model | `deepseek-v4-pro` |
+| model | `deepseek-v4-flash` |
 | thinking | enabled / `max` |
-| mode | `anchored-standard` |
+| mode | `standard` (dsh agent preset id: `standard`, `minimal`, `cordis`, or `ptc`) |
 | review | `always` |
 | watch | enabled |
 | Issue/PR language | `en` |
@@ -113,6 +113,12 @@ docker run --rm \
 ```
 
 Pass the key with `-e DEEPSEEK_API_KEY_DSH_MIGRATE_BOT` or a `KEY=value` env file, not `.secrets.local.json` as Docker `--env-file`.
+
+The image installs the dsh CLI globally during the build. On a slow route to the public npm registry that one layer can take tens of minutes; build against a mirror instead (CI runners do not need this):
+
+```sh
+docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-migrate-bot .
+```
 
 ## Releasing
 
