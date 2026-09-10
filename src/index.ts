@@ -5,7 +5,7 @@ export { runMechanical } from './mechanical/run.ts'
 export { dshPeerSpecs, pinDshPeersCommand } from './mechanical/peers.ts'
 export { extractMechanicalErrors } from './mechanical/errors.ts'
 export { runPipeline } from './pipeline/orchestrator.ts'
-export { resolveDshVersion } from './watch/dsh-version.ts'
+export { compareVersions, listRemoteTags, resolveDshVersion } from './watch/dsh-version.ts'
 export { decideWatch, describeWatchDecision } from './watch/gate.ts'
 export {
   applyPullRequestToSeenState,

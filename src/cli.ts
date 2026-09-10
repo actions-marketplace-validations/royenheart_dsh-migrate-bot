@@ -109,9 +109,11 @@ async function main(argv: readonly string[]): Promise<number> {
     ? parseConfig({})
     : loadConfigFile(configPath)
   const requested = argValue(argv, '--dsh-version') ?? config.dshVersion
-  const target = await resolveDshVersion(requested)
   const apiKeyEnv = argValue(argv, '--api-key-env') ?? config.secrets.apiKeyEnv
   const secrets = loadSecrets([workdir, appRoot, process.cwd()], { apiKeyEnv })
+  // Authenticate the releases call: unauthenticated it shares a 60/hour
+  // per-IP bucket with every other job on the runner, which returns 403.
+  const target = await resolveDshVersion(requested, { token: secrets.githubToken })
   const mechanicalOnly = hasFlag(argv, '--mechanical-only')
   const skipGithub = hasFlag(argv, '--skip-github') || mechanicalOnly
   const force = hasFlag(argv, '--force')
