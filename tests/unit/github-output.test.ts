@@ -30,7 +30,7 @@ test('dsh runner passes profile, prompt, and DSH_MIGRATE_* env', async () => {
   const runner = createDshRunner({
     spawnImpl: async (args, options) => {
       captured = { args, env: options.env }
-      return { code: 0, stdout: '# Verdict\nkeep\n', stderr: '' }
+      return { code: 0, stdout: '# Verdict\nkeep\n', stderr: '', timedOut: false }
     },
   })
   const result = await runner.run({

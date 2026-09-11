@@ -1,0 +1,3 @@
+- insert:
+    - id: fixture-boot-break
+      name: '@fixture/dsh-plugin-boot-break'

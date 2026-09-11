@@ -1,7 +1,8 @@
 import type { IssuePrLanguage } from '../config/schema.ts'
 import type { MechanicalResult } from '../mechanical/run.ts'
 import type { ResolvedVersion } from '../watch/dsh-version.ts'
-import type { RunStatus } from '../pipeline/types.ts'
+import type { RunStatus, VerificationResult } from '../pipeline/types.ts'
+import type { Attribution } from '../verify/baseline.ts'
 import { formatAgentReport, formatErrorExcerpt, formatRootCause, formatWorkingTree } from './issue-format.ts'
 
 export interface DocumentInput {
@@ -16,6 +17,43 @@ export interface DocumentInput {
   verdictB?: string | undefined
   fixes?: readonly string[] | undefined
   diff: string
+  verification?: VerificationResult | undefined
+  attribution?: Attribution | undefined
+}
+
+/** Every verification layer names itself in both languages. */
+const VERIFY_LABEL_EN: Record<VerificationResult['layer'], string> = {
+  boot: 'boot probe',
+  web: 'web smoke',
+  e2e: 'E2E suite',
+}
+
+const VERIFY_LABEL_ZH: Record<VerificationResult['layer'], string> = {
+  boot: 'boot 探针',
+  web: 'Web 冒烟',
+  e2e: 'E2E 套件',
+}
+
+/** Baseline attribution plus the last verification round, when either exists. */
+function verificationSection(input: DocumentInput, language: IssuePrLanguage): string {
+  const zh = language === 'zh'
+  const lines: string[] = []
+  if (input.attribution !== undefined) {
+    lines.push(`${zh ? '基线归因' : 'Baseline'}: ${input.attribution.summary}`)
+  }
+  if (input.verification !== undefined) {
+    const label = zh ? VERIFY_LABEL_ZH[input.verification.layer] : VERIFY_LABEL_EN[input.verification.layer]
+    const state = input.verification.ok ? 'pass' : 'fail'
+    const skipped = input.verification.skipped === undefined
+      ? ''
+      : ` (${zh ? '跳过' : 'skipped'}: ${input.verification.skipped})`
+    lines.push(`${label}: ${state}${skipped}`)
+    if (!input.verification.ok) {
+      lines.push('', '```', input.verification.detail.trim().slice(0, 4000) || input.verification.signature, '```')
+    }
+  }
+  if (lines.length === 0) return ''
+  return `\n## ${zh ? '分层验证' : 'Layered verification'}\n\n${lines.join('\n')}\n`
 }
 
 function en(input: DocumentInput): { title: string; issue: string; pr: string } {
@@ -31,7 +69,7 @@ function en(input: DocumentInput): { title: string; issue: string; pr: string } 
 - Review skipped: ${input.skippedReview ? 'yes' : 'no'}
 - Repair loops: ${input.fixAttempts}
 - Mechanical tests: ${input.mechanical.ok ? 'passed' : 'failed'}
-
+${verificationSection(input, 'en')}
 ## Root cause
 
 ${formatRootCause({
@@ -106,7 +144,7 @@ function zh(input: DocumentInput): { title: string; issue: string; pr: string } 
 - 是否跳过复核：${input.skippedReview ? '是' : '否'}
 - 修复循环次数：${input.fixAttempts}
 - 机械测试：${input.mechanical.ok ? '通过' : '失败'}
-
+${verificationSection(input, 'zh')}
 ## 根因
 
 ${formatRootCause({

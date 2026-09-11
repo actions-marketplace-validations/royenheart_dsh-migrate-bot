@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { readSessionEvents } from './session-events.js'
 
 export const name = 'dsh-migrate-runner'
 export const inject = ['agentDefaultModel', 'agents', 'sessions']
@@ -147,7 +148,7 @@ async function run(ctx, task, io) {
   const limit = Number(process.env.DSH_MIGRATE_USAGE_LIMIT || 0)
   const timer = setInterval(() => {
     try {
-      const progress = progressOf(agent.session.events, (Date.now() - startedAt) / 1000, {
+      const progress = progressOf(readSessionEvents(agent.session), (Date.now() - startedAt) / 1000, {
         model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-flash',
       })
       io.stderr.write(`dsh-migrate-status: ${JSON.stringify(progress)}\n`)
@@ -169,7 +170,7 @@ async function run(ctx, task, io) {
   await agent.whenIdle()
   clearInterval(timer)
   await sessions.flush(agent.session)
-  const finalProgress = progressOf(agent.session.events, (Date.now() - startedAt) / 1000, {
+  const finalProgress = progressOf(readSessionEvents(agent.session), (Date.now() - startedAt) / 1000, {
     model: process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-flash',
   })
   io.stderr.write(`dsh-migrate-status: ${JSON.stringify(finalProgress)}\n`)
@@ -179,7 +180,7 @@ async function run(ctx, task, io) {
     io.exit(1)
     return
   }
-  const outcome = summarize(agent.session.events, firstSeq)
+  const outcome = summarize(readSessionEvents(agent.session), firstSeq)
   if (isQuotaReason(outcome.reason)) {
     io.stderr.write(`dsh-migrate: insufficient balance: ${outcome.reason.error.code}: ${outcome.reason.error.message}\n`)
     io.exit(1)

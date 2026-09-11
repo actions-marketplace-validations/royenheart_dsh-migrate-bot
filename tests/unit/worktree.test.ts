@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -88,6 +88,78 @@ test('stagePluginChanges unstages .dsh-migrate even when it is not ignored', () 
     writeFileSync(join(dir, 'src.js'), 'export const n = 1\n')
     stagePluginChanges(dir)
     assert.deepEqual(stagedNames(dir), ['src.js'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Agent Notes are migrate noise, not migration content', () => {
+  // Belt and braces behind the prompt: a live run left
+  // `.agents/notes/implemented/architecture/…md` in the plugin tree, and the
+  // mechanical publish path would have committed it into the migration PR.
+  assert.equal(isMigrateNoisePath('.agents/notes'), true)
+  assert.equal(isMigrateNoisePath('.agents/notes/'), true)
+  assert.equal(isMigrateNoisePath('.agents/notes/implemented/architecture/2026-09-10-x.md'), true)
+  // Only the notes tree is excluded; a plugin may legitimately ship its own
+  // agent configuration or skills.
+  assert.equal(isMigrateNoisePath('.agents/skills/my-skill/SKILL.md'), false)
+  assert.equal(isMigrateNoisePath('.agents/config.yml'), false)
+  assert.equal(isMigrateNoisePath('src/index.ts'), false)
+})
+
+test('a tree that only grew Agent Notes is not dirty', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-mig-notes-'))
+  try {
+    git(dir, ['init'])
+    git(dir, ['config', 'user.name', 'test'])
+    git(dir, ['config', 'user.email', 'test@example.test'])
+    writeFileSync(join(dir, 'keep.txt'), 'ok\n')
+    git(dir, ['add', 'keep.txt'])
+    git(dir, ['commit', '-m', 'init'])
+    ensureMigrateGitExclude(dir)
+    mkdirSync(join(dir, '.agents', 'notes', 'implemented', 'architecture'), { recursive: true })
+    writeFileSync(join(dir, '.agents', 'notes', 'implemented', 'architecture', '2026-09-10-x.md'), '# note\n')
+    assert.equal(isWorktreeDirty(dir), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the exclude file hides Agent Notes from git without a committed .gitignore', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-mig-excl-'))
+  try {
+    git(dir, ['init'])
+    ensureMigrateGitExclude(dir)
+    const exclude = readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8')
+    assert.match(exclude, /^\.dsh-migrate\/$/m)
+    assert.match(exclude, /^\.agents\/notes\/$/m)
+    // Idempotent: a second call must not duplicate lines.
+    ensureMigrateGitExclude(dir)
+    const again = readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8')
+    assert.equal(again.split('\n').filter((line: string) => line.trim() === '.agents/notes/').length, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Agent Notes never reach the staged set even when the plugin tracks them', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-mig-track-'))
+  try {
+    git(dir, ['init'])
+    git(dir, ['config', 'user.name', 'test'])
+    git(dir, ['config', 'user.email', 'test@example.test'])
+    mkdirSync(join(dir, '.agents', 'notes', 'implemented'), { recursive: true })
+    writeFileSync(join(dir, '.agents', 'notes', 'implemented', 'x.md'), 'original\n')
+    writeFileSync(join(dir, 'src.ts'), 'export {}\n')
+    git(dir, ['add', '-f', '-A'])
+    git(dir, ['commit', '-m', 'init'])
+    // The agent edits a tracked note and a real source file.
+    writeFileSync(join(dir, '.agents', 'notes', 'implemented', 'x.md'), 'rewritten by the agent\n')
+    writeFileSync(join(dir, 'src.ts'), 'export const a = 1\n')
+    stagePluginChanges(dir)
+    const staged = spawnSync('git', ['diff', '--cached', '--name-only'], { cwd: dir, encoding: 'utf8' }).stdout
+    assert.match(staged, /src\.ts/)
+    assert.doesNotMatch(staged, /\.agents\/notes/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

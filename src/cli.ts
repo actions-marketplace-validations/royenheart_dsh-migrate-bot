@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, writeSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfigFile, parseConfig } from './config/load.ts'
@@ -16,6 +16,15 @@ import { createDshRunner, formatSessionProgress } from './agents/dsh.ts'
 import { createGithubPublisher } from './github/publish.ts'
 import { writeGithubOutput } from './github/output.ts'
 import { runPipeline } from './pipeline/orchestrator.ts'
+import type { VerificationResult } from './pipeline/types.ts'
+import { bootProbe, type BootProbeResult } from './verify/boot.ts'
+import { attribute, resolveBaseline } from './verify/baseline.ts'
+import { ensureDsh } from './verify/dsh-install.ts'
+import { hasClientSurface, webSmoke } from './verify/web.ts'
+import { detectE2EFramework, INDEX_FILE, readIndex, renderAuthoringBrief, syncE2EBranch } from './e2e/branch.ts'
+import { runE2E } from './e2e/run.ts'
+import { detectBaseBranch } from './github/publish.ts'
+import { renderStepSummary, writeStepSummary } from './github/summary.ts'
 import { checkoutHarness } from './harness/checkout.ts'
 import { createQuotaQuery } from './quota/query.ts'
 import { isQuotaError } from './quota/errors.ts'
@@ -168,7 +177,10 @@ async function main(argv: readonly string[]): Promise<number> {
   ensureMigrateGitExclude(workdir)
 
   if (mechanicalOnly) {
-    const mechanical = runMechanical(workdir, config, { dshVersion: target.version })
+    const mechanical = runMechanical(workdir, config, {
+      dshVersion: target.version,
+      timeoutMs: config.timeouts.commandMs,
+    })
     createReportStore(runDir).write('mechanical', mechanical.errors || mechanical.log)
     writeGithubOutput({
       status: mechanical.ok ? 'compatible' : 'failed',
@@ -202,6 +214,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const harnessResult = checkoutHarness({
     tag: target.tag,
     dest: resolve(migrateHome, 'harness'),
+    timeoutMs: config.timeouts.checkoutMs,
   })
   if (!harnessResult.ok) {
     logLine(`harness checkout skipped: ${harnessResult.detail}`)
@@ -217,6 +230,43 @@ async function main(argv: readonly string[]): Promise<number> {
     query: () => quotaQuery.query({ apiKey }),
   }
 
+  const dshCache = resolve(migrateHome, 'dsh')
+  const probeEnv = { timeoutMs: config.verify.boot.timeoutMs }
+
+  /** V2: boot the tree under one harness version through a scratch profile. */
+  const probeAt = async (tag: string): Promise<BootProbeResult> => {
+    const installed = ensureDsh(tag.replace(/^dsh-v/, ''), dshCache, { timeoutMs: config.timeouts.commandMs })
+    if (!installed.ok || installed.bin === undefined) {
+      return { outcome: 'fail', signature: `probe unavailable: ${installed.detail}`, detail: installed.detail }
+    }
+    return await bootProbe({ workdir, bin: installed.bin, dshTag: tag, ...probeEnv })
+  }
+
+  // Baseline first: it never gates the run, it decides attribution and how far
+  // back the agent has to look.
+  const baselineRef = resolveBaseline(previous, workdir)
+  let baselineProbe: BootProbeResult | undefined
+  if (config.verify.boot.enabled && baselineRef.tag !== undefined) {
+    logLine(`stage: baseline probe ${baselineRef.tag} (${baselineRef.source})`)
+    baselineProbe = await probeAt(baselineRef.tag)
+    logLine(`baseline probe: ${baselineProbe.outcome} (${baselineProbe.signature})`)
+  } else if (config.verify.boot.enabled) {
+    logLine('baseline probe skipped: no recorded tag and no declared harness version')
+  }
+
+  const agentSession = createDshRunner({
+    ...(process.env.DSH_HOME === undefined ? {} : { dshHome: process.env.DSH_HOME }),
+    reportDir: runDir,
+    timeoutMs: config.timeouts.agentMs,
+    onStatus(progress) {
+      logLine(`dsh: ${formatSessionProgress(progress)}`)
+    },
+    onLog(line) { logLine(line) },
+  })
+
+  let lastE2EFailure: string[] = []
+  const worktreeRoot = resolve(runDir, 'e2e-worktree')
+
   let result
   try {
     result = await runPipeline({
@@ -225,22 +275,122 @@ async function main(argv: readonly string[]): Promise<number> {
       target,
       store: createReportStore(runDir),
       apiKey,
-      runMechanical: () => runMechanical(workdir, config, { dshVersion: target.version }),
+      runMechanical: () => runMechanical(workdir, config, {
+        dshVersion: target.version,
+        timeoutMs: config.timeouts.commandMs,
+      }),
       isDirty: () => isWorktreeDirty(workdir),
       diff: () => worktreeDiff(workdir),
-      agent: createDshRunner({
-        ...(process.env.DSH_HOME === undefined ? {} : { dshHome: process.env.DSH_HOME }),
-        reportDir: runDir,
-        onStatus(progress) {
-          logLine(`dsh: ${formatSessionProgress(progress)}`)
-        },
-        onLog(line) { logLine(line) },
-      }),
+      agent: agentSession,
       quota,
       ...(harness === undefined ? {} : { harness }),
       ...(skipGithub || githubToken === undefined
         ? {}
         : { github: createGithubPublisher(githubToken) }),
+      ...(config.verify.boot.enabled
+        ? {
+          probeTarget: async (): Promise<VerificationResult> => {
+            const probe = await probeAt(target.tag)
+            return {
+              ok: probe.outcome === 'pass',
+              layer: 'boot',
+              signature: probe.signature,
+              detail: probe.detail,
+            }
+          },
+        }
+        : {}),
+      ...(config.verify.web.enabled
+        ? {
+          probeWeb: async (): Promise<VerificationResult> => {
+            if (!hasClientSurface(workdir)) {
+              return { ok: true, layer: 'web', signature: 'web: no client surface', detail: '', skipped: 'the plugin declares no dsh.client surface' }
+            }
+            const installed = ensureDsh(target.version, dshCache, { timeoutMs: config.timeouts.commandMs })
+            if (!installed.ok || installed.bin === undefined) {
+              return { ok: true, layer: 'web', signature: 'web: probe unavailable', detail: installed.detail, skipped: 'no dsh binary for the web smoke' }
+            }
+            const smoke = await webSmoke({
+              workdir,
+              bin: installed.bin,
+              timeoutMs: config.verify.web.timeoutMs,
+              dshTag: target.tag,
+            })
+            return {
+              ok: smoke.ok,
+              layer: 'web',
+              signature: smoke.signature,
+              detail: smoke.detail,
+              ...(smoke.skipped === undefined ? {} : { skipped: smoke.skipped }),
+            }
+          },
+        }
+        : {}),
+      ...(config.e2e.enabled
+        ? {
+          runE2E: async (mode: 'subset' | 'full'): Promise<VerificationResult> => {
+            const run = runE2E({
+              workdir,
+              branch: config.e2e.branch,
+              mode: config.e2e.subsetFirst ? mode : 'full',
+              failing: lastE2EFailure,
+              worktreeDir: worktreeRoot,
+              timeoutMs: config.timeouts.commandMs,
+            })
+            lastE2EFailure = run.failedTests
+            return {
+              ok: run.ok,
+              layer: 'e2e',
+              signature: run.signature,
+              detail: run.detail,
+              ...(run.skipped === undefined ? {} : { skipped: run.skipped }),
+            }
+          },
+          syncE2E: async () => {
+            const staging = resolve(runDir, 'e2e-draft')
+            mkdirSync(staging, { recursive: true })
+            const framework = detectE2EFramework(workdir)
+            const pluginPkg = resolve(workdir, 'package.json')
+            const pluginNameForBrief = existsSync(pluginPkg)
+              ? String((JSON.parse(readFileSync(pluginPkg, 'utf8')) as { name?: unknown }).name ?? 'plugin')
+              : 'plugin'
+            const brief = renderAuthoringBrief({
+              workdir,
+              suiteDir: config.e2e.dir,
+              framework,
+              dshTag: target.tag,
+              pluginName: pluginNameForBrief,
+              stagingDir: staging,
+            })
+            await agentSession.run({
+              kind: 'e2e',
+              prompt: brief,
+              workdir,
+              dsh: config.dsh,
+              apiKey,
+            })
+            const index = readIndex(resolve(staging, INDEX_FILE))
+            if (index === undefined) {
+              return { ok: false, pushed: false, reason: 'no-index', detail: 'the agent staged no index.json' }
+            }
+            const defaultBranch = detectBaseBranch(workdir)
+            return syncE2EBranch({
+              workdir,
+              branch: config.e2e.branch,
+              baseRef: config.e2e.baseRef === 'migration' ? `origin/${defaultBranch}` : config.e2e.baseRef,
+              defaultBranch,
+              forceRebase: config.e2e.forceRebase,
+              stagingDir: staging,
+              worktreeDir: resolve(runDir, 'e2e-branch'),
+              index,
+              message: `test(e2e): cover ${target.tag} (${index.features.length} features)`,
+            })
+          },
+        }
+        : {}),
+      ...(baselineProbe === undefined
+        ? {}
+        : { attribution: attribute(baselineProbe, await probeAt(target.tag), baselineRef.source) }),
     }, {
       info(message) { logLine(message) },
     })
@@ -258,6 +408,23 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     throw error
   }
+
+  // The run page is where a human actually looks: render the verdict, the
+  // baseline attribution and the failing layer there.
+  const pluginPkgPath = resolve(workdir, 'package.json')
+  const pluginLabel = existsSync(pluginPkgPath)
+    ? String((JSON.parse(readFileSync(pluginPkgPath, 'utf8')) as { name?: unknown }).name ?? 'plugin')
+    : 'plugin'
+  const summary = renderStepSummary({
+    status: result.status,
+    target,
+    pluginName: pluginLabel,
+    result,
+    ...(result.published.issueUrl === undefined ? {} : { issueUrl: result.published.issueUrl }),
+    ...(result.published.pullRequestUrl === undefined ? {} : { pullRequestUrl: result.published.pullRequestUrl }),
+    runDir,
+  })
+  if (!writeStepSummary(summary)) logLine(summary)
 
   let seen = previous
   if (config.watch.enabled) {

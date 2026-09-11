@@ -8,10 +8,20 @@ import { collectPatchReports, formatPatchReportComment } from '../github/patch-r
 import { usageUnits, type SessionProgress } from '../agents/session-status.ts'
 import { decideQuota } from '../quota/check.ts'
 import { QuotaError } from '../quota/errors.ts'
+import { describeBlocker, parseBlocker } from '../verify/blocker.ts'
+import { signatureStalled } from '../verify/baseline.ts'
 import type { AgentRequest } from '../agents/types.ts'
-import type { PipelineLogger, PipelinePorts, PipelineResult, RunStatus } from './types.ts'
+import type {
+  PipelineLogger,
+  PipelinePorts,
+  PipelineResult,
+  RunStatus,
+  VerificationResult,
+} from './types.ts'
 
 const silent: PipelineLogger = { info() {} }
+
+const PASS: VerificationResult = { ok: true, layer: 'boot', signature: 'pass', detail: '' }
 
 function pluginName(workdir: string): string {
   const pkgPath = join(workdir, 'package.json')
@@ -30,6 +40,8 @@ function maybePublish(
     skippedReview: boolean
     fixAttempts: number
     mechanical: PipelineResult['mechanical']
+    verification?: VerificationResult | undefined
+    attribution?: PipelineResult['attribution']
   },
   logger: PipelineLogger,
 ): Promise<PipelineResult['published']> {
@@ -51,6 +63,8 @@ function maybePublish(
     verdictB: ports.store.read('B'),
     fixes: ports.store.listFixReports(),
     diff: ports.diff(),
+    ...(extra.verification === undefined ? {} : { verification: extra.verification }),
+    ...(extra.attribution === undefined ? {} : { attribution: extra.attribution }),
   })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const branch = `dsh-migrate/${ports.target.version}-${stamp}`.replace(/[^A-Za-z0-9._/-]+/g, '-')
@@ -121,8 +135,42 @@ function agentInput(ports: PipelinePorts, used: number): Pick<AgentRequest, 'usa
 }
 
 /**
- * Mechanical first, optional A+B review, mandatory retest, then C-loop.
- * A clean worktree never opens an Issue or PR.
+ * One verification round: the boot probe first, then the E2E subset.
+ *
+ * Cheap layers run first and short-circuit: a tree that cannot boot has no
+ * business spending minutes in a browser. Which layers exist is decided by the
+ * ports (the caller owns config and binary availability).
+ */
+async function verifyRound(ports: PipelinePorts, mode: 'subset' | 'full'): Promise<VerificationResult> {
+  // Report the deepest layer that actually ran, so a run whose last gate was
+  // the web smoke says so instead of crediting the boot probe.
+  let last: VerificationResult | undefined
+  if (ports.probeTarget !== undefined) {
+    last = await ports.probeTarget()
+    if (!last.ok) return last
+  }
+  if (ports.probeWeb !== undefined && mode === 'full') {
+    // The browser-free web smoke runs once, at final verification: it is a
+    // composition fact, not something a mid-loop repair changes independently.
+    const web = await ports.probeWeb()
+    if (!web.ok) return web
+    last = web
+  }
+  if (ports.runE2E !== undefined) {
+    last = await ports.runE2E(mode)
+    if (!last.ok) return last
+  }
+  return last ?? { ...PASS, skipped: 'no verification layer is enabled' }
+}
+
+/**
+ * V1 fast gate, optional A+B review, then a repair loop whose each round
+ * re-verifies through V2/V3, and a full V4 pass before publishing.
+ *
+ * The loop always keeps its full budget: a plugin several corridors behind is
+ * the common case, and stopping it early would refuse the job exactly when it
+ * is needed. It stops early only on evidence — a stalled failure signature or
+ * an evidence-backed upstream blocker — and never on a guess about the cause.
  */
 export async function runPipeline(
   ports: PipelinePorts,
@@ -130,18 +178,20 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   const prompts = resolvePrompts(ports.config, ports.harness)
   logger.info(`stage: target ${ports.target.tag}`)
+  if (ports.attribution !== undefined) logger.info(`baseline: ${ports.attribution.summary}`)
 
-  logger.info('stage: mechanical')
+  logger.info('stage: fast gate (V1)')
   let mechanical = ports.runMechanical()
   ports.store.write('mechanical', mechanical.errors || mechanical.log)
-  logger.info(`mechanical: ${mechanical.ok ? 'pass' : 'fail'}`)
+  logger.info(`fast gate: ${mechanical.ok ? 'pass' : 'fail'}`)
 
   const skipReview = mechanical.ok && ports.config.review.policy === 'skip-if-mechanical-pass'
   if (skipReview) {
-    const published = await maybePublish(ports, mechanical.ok ? 'compatible' : 'failed', {
+    const published = await maybePublish(ports, 'compatible', {
       skippedReview: true,
       fixAttempts: 0,
       mechanical,
+      ...(ports.attribution === undefined ? {} : { attribution: ports.attribution }),
     }, logger)
     return {
       status: ports.isDirty() ? 'migrated' : 'compatible',
@@ -150,6 +200,7 @@ export async function runPipeline(
       runDir: ports.store.runDir,
       skippedReview: true,
       fixAttempts: 0,
+      ...(ports.attribution === undefined ? {} : { attribution: ports.attribution }),
     }
   }
 
@@ -181,13 +232,33 @@ export async function runPipeline(
   ports.store.write('B', b.report)
   used = addUsage(used, b.usage)
 
-  logger.info('stage: mechanical (after A+B)')
+  // V1 again: A+B edited the tree, so the cheap gate has to agree before the
+  // expensive layers are worth running.
   mechanical = ports.runMechanical()
   ports.store.write('mechanical', mechanical.errors || mechanical.log)
-  logger.info(`mechanical after A+B: ${mechanical.ok ? 'pass' : 'fail'}`)
+  logger.info(`fast gate after A+B: ${mechanical.ok ? 'pass' : 'fail'}`)
+
+  let verification = mechanical.ok ? await verifyRound(ports, 'subset') : {
+    ok: false,
+    layer: 'boot' as const,
+    signature: 'fast-gate: typecheck or unit tests failed',
+    detail: mechanical.errors,
+  }
+  ports.store.write('verification', verification.detail || verification.signature)
+  logger.info(`verify after A+B: ${verification.layer} ${verification.ok ? 'pass' : 'fail'}`)
 
   let fixAttempts = 0
-  while (!mechanical.ok && fixAttempts < ports.config.loop.maxAttempts) {
+  let stoppedBy: PipelineResult['stoppedBy'] = 'budget'
+  let previousSignature: string | undefined
+
+  while (!verification.ok && fixAttempts < ports.config.loop.maxAttempts) {
+    if (signatureStalled(previousSignature, verification.signature)) {
+      logger.info(`repair loop stopped: failure signature unchanged (${verification.signature})`)
+      stoppedBy = 'stalled'
+      break
+    }
+    previousSignature = verification.signature
+
     fixAttempts += 1
     logger.info(`stage: repair C${fixAttempts}`)
     await ensureQuota(ports, logger, `before C${fixAttempts}`, used)
@@ -196,9 +267,10 @@ export async function runPipeline(
       template: prompts.fix,
       reportA: ports.store.read('A') ?? '',
       reportB: ports.store.read('B') ?? '',
-      errors: mechanical.errors,
+      errors: verification.detail,
       priorFixes: prior,
       ...(ports.harness === undefined ? {} : { harness: ports.harness }),
+      ...(ports.attribution === undefined ? {} : { baselineNote: ports.attribution.summary }),
     })
     const c = await ports.agent.run({
       kind: 'fix',
@@ -210,18 +282,68 @@ export async function runPipeline(
     })
     ports.store.write(`C${fixAttempts}`, c.report)
     used = addUsage(used, c.usage)
-    logger.info(`stage: mechanical (after C${fixAttempts})`)
+
+    const blocker = parseBlocker(c.report)
+    if (blocker.declared) logger.info(describeBlocker(blocker))
+    if (blocker.valid) {
+      stoppedBy = 'blocker'
+      break
+    }
+
     mechanical = ports.runMechanical()
     ports.store.write('mechanical', mechanical.errors || mechanical.log)
+    logger.info(`fast gate after C${fixAttempts}: ${mechanical.ok ? 'pass' : 'fail'}`)
+    verification = mechanical.ok
+      ? await verifyRound(ports, 'subset')
+      : {
+        ok: false,
+        layer: 'boot' as const,
+        signature: 'fast-gate: typecheck or unit tests failed',
+        detail: mechanical.errors,
+      }
+    ports.store.write('verification', verification.detail || verification.signature)
+    logger.info(`verify after C${fixAttempts}: ${verification.layer} ${verification.ok ? 'pass' : 'fail'}`)
   }
 
-  const status: RunStatus = !mechanical.ok
+  // V4: a full pass once the loop converges, so a fix that repaired the last
+  // failure but broke an earlier one cannot slip through.
+  if (verification.ok) {
+    logger.info('stage: full verification (V4)')
+    verification = await verifyRound(ports, 'full')
+    ports.store.write('verification', verification.detail || verification.signature)
+    logger.info(`full verification: ${verification.ok ? 'pass' : 'fail'}`)
+  }
+
+  let e2eSync: PipelineResult['e2eSync']
+  if (ports.syncE2E !== undefined) {
+    logger.info('stage: E2E suite branch')
+    try {
+      e2eSync = await ports.syncE2E()
+      logger.info(`E2E branch: ${e2eSync.pushed ? 'pushed' : `not pushed (${e2eSync.reason ?? 'unknown'})`}`)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      e2eSync = { ok: false, pushed: false, reason: 'failed', detail }
+      logger.info(`E2E branch: failed (${detail})`)
+    }
+  }
+
+  // `advisory` keeps an E2E failure visible in the report without failing the
+  // run; `blocking` makes it a gate. V2 boot failures always fail the run.
+  const e2eBlocking = ports.config.e2e.gate === 'blocking'
+  const verificationBlocks = verification.ok || (verification.layer === 'e2e' && !e2eBlocking)
+  const status: RunStatus = !(mechanical.ok && verificationBlocks)
     ? 'failed'
     : ports.isDirty()
       ? 'migrated'
       : 'compatible'
 
-  const published = await maybePublish(ports, status, { skippedReview: false, fixAttempts, mechanical }, logger)
+  const published = await maybePublish(ports, status, {
+    skippedReview: false,
+    fixAttempts,
+    mechanical,
+    verification,
+    ...(ports.attribution === undefined ? {} : { attribution: ports.attribution }),
+  }, logger)
   return {
     status,
     mechanical,
@@ -229,5 +351,9 @@ export async function runPipeline(
     runDir: ports.store.runDir,
     skippedReview: false,
     fixAttempts,
+    verification,
+    stoppedBy,
+    ...(ports.attribution === undefined ? {} : { attribution: ports.attribution }),
+    ...(e2eSync === undefined ? {} : { e2eSync }),
   }
 }

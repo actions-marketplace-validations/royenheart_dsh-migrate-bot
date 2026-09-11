@@ -14,11 +14,21 @@ export interface HarnessCheckout {
 
 export type GitRunner = (args: readonly string[], cwd?: string) => SpawnSyncReturns<string>
 
-function defaultGit(args: readonly string[], cwd?: string): SpawnSyncReturns<string> {
+/** Watchdog for one git invocation; a stalled fetch must not hold the job. */
+export const DEFAULT_CHECKOUT_TIMEOUT_MS = 10 * 60_000
+
+function gitWithTimeout(args: readonly string[], cwd: string | undefined, timeoutMs: number): SpawnSyncReturns<string> {
   return spawnSync('git', ['-c', 'safe.directory=*', ...args], {
     cwd,
     encoding: 'utf8',
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
   })
+}
+
+/** True when git was killed by the watchdog rather than failing on its own. */
+function timedOut(result: SpawnSyncReturns<string>): boolean {
+  return (result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT'
 }
 
 function fail(path: string, detail: string): HarnessCheckout {
@@ -32,8 +42,11 @@ export function checkoutHarness(options: {
   tag: string
   dest: string
   git?: GitRunner | undefined
+  /** Watchdog for one git invocation. */
+  timeoutMs?: number | undefined
 }): HarnessCheckout {
-  const git = options.git ?? defaultGit
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CHECKOUT_TIMEOUT_MS
+  const git = options.git ?? ((args: readonly string[], cwd?: string) => gitWithTimeout(args, cwd, timeoutMs))
   const dest = options.dest
   mkdirSync(dest, { recursive: true })
 
@@ -56,6 +69,9 @@ export function checkoutHarness(options: {
       HARNESS_REPO,
       dest,
     ])
+    if (timedOut(cloned)) {
+      return fail(dest, 'git clone timed out (watchdog) — the harness checkout is incomplete')
+    }
     if (cloned.status !== 0) {
       return fail(dest, cloned.stderr.trim() || cloned.stdout.trim() || `git clone failed (${cloned.status})`)
     }

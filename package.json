@@ -22,7 +22,9 @@
     "test": "npm run build && node --test dist/tests/unit/*.test.js dist/tests/e2e/mechanical.test.js",
     "test:e2e": "npm run build && node --test dist/tests/e2e/*.test.js",
     "commit": "cz commit",
-    "bump": "cz bump --changelog"
+    "bump": "cz bump --changelog",
+    "check:upstream": "./scripts/run-upstream-oracle.sh",
+    "bench:upstream": "./tools/harbor/run-benchmark.sh"
   },
   "dependencies": {
     "typescript": "^5.9.2",

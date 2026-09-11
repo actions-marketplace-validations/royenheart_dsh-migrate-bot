@@ -81,3 +81,45 @@ test('quota.limit is accepted', () => {
 test('rejects a non-positive quota.limit', () => {
   assert.throws(() => parseConfig({ quota: { limit: 0 } }), /quota.limit/)
 })
+
+test('verification layers are on by default with a watchdog', () => {
+  const config = parseConfig({})
+  assert.equal(config.verify.boot.enabled, true)
+  assert.equal(config.verify.boot.timeoutMs, 180_000)
+  assert.equal(config.verify.web.enabled, true)
+})
+
+test('a boot probe watchdog below a second is rejected', () => {
+  assert.throws(() => parseConfig({ verify: { boot: { timeoutMs: 10 } } }), /verify\.boot\.timeoutMs/)
+})
+
+test('a non-boolean verify flag is rejected', () => {
+  assert.throws(() => parseConfig({ verify: { boot: { enabled: 'yes' } } }), /verify\.boot\.enabled/)
+})
+
+test('the E2E suite defaults to its own branch, rebased, advisory', () => {
+  const config = parseConfig({})
+  assert.equal(config.e2e.enabled, true)
+  assert.equal(config.e2e.branch, 'dsh-migrate/e2e')
+  assert.equal(config.e2e.forceRebase, true)
+  assert.equal(config.e2e.baseRef, 'migration')
+  assert.equal(config.e2e.gate, 'advisory')
+  assert.equal(config.e2e.subsetFirst, true)
+})
+
+test('the gate accepts blocking and nothing else', () => {
+  assert.equal(parseConfig({ e2e: { gate: 'blocking' } }).e2e.gate, 'blocking')
+  assert.throws(() => parseConfig({ e2e: { gate: 'warn' } }), /e2e\.gate/)
+})
+
+test('an unusable branch name is rejected before it reaches git', () => {
+  assert.throws(() => parseConfig({ e2e: { branch: 'bad branch' } }), /e2e\.branch/)
+  assert.throws(() => parseConfig({ e2e: { branch: 'a..b' } }), /e2e\.branch/)
+  assert.equal(parseConfig({ e2e: { branch: 'ci/e2e-suite' } }).e2e.branch, 'ci/e2e-suite')
+})
+
+test('the suite directory cannot escape the repository', () => {
+  assert.throws(() => parseConfig({ e2e: { dir: '../outside' } }), /e2e\.dir/)
+  assert.throws(() => parseConfig({ e2e: { dir: '/abs' } }), /e2e\.dir/)
+  assert.equal(parseConfig({ e2e: { dir: 'tests/e2e/' } }).e2e.dir, 'tests/e2e')
+})
