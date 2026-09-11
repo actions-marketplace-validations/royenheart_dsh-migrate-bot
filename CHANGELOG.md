@@ -12,6 +12,12 @@ Version numbers are bumped with [Commitizen](https://commitizen-tools.github.io/
 - Mechanical tests, overlap/alignment reviews, repair loop, Issue/PR on dirty trees.
 - dsh update gate with last-seen version stored on `dsh-migrate/state`.
 
+## v0.3.1 (2026-09-11)
+
+### Feat
+
+- **verify**: add boot, web and baseline verification gates
+
 ## v0.3.0 (2026-09-10)
 
 ### Feat
