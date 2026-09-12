@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 Entries are generated from the commit history by [Commitizen](https://commitizen-tools.github.io/commitizen/); do not edit them by hand.
 
+## v0.3.2 (2026-09-12)
+
+### Feat
+
+- add the documentation constraint system
+
+### Fix
+
+- **changelog**: emit the header only on a full regeneration
+
+### Docs
+
+- **bench**: name both apt failure modes and reject the silent-install fix
+- **cz**: make docs a first-class changelog type
+
 ## v0.3.1 (2026-09-11)
 
 ### Feat
