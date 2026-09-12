@@ -62,7 +62,11 @@ Applied to a **copy** of each task, so the vendored submodule stays pristine, an
    to Harbor through `[environment] docker_image`, which Harbor supports natively
    and which skips its own build.
 
-Every task's own `apt-get update && apt-get install -y --no-install-recommends git` step runs unmodified. A build host whose root filesystem is full makes `apt` report failures that read as broken archive signatures, so check `df -h /` before suspecting the archive keys. The production `Dockerfile` raises apt's documented `Acquire::Retries` and timeout values, which guard against a slow mirror and are not a verification bypass.
+Every task's own `apt-get update && apt-get install -y --no-install-recommends git` step runs unmodified. Two build-host conditions make that step fail for reasons that have nothing to do with the task, and neither is a reason to weaken it.
+
+A root filesystem with no free space makes `apt` report errors that read as broken archive signatures, so check `df -h /` before suspecting the archive keys. A route that drops large transfers makes `apt` report `Error reading from server`, which is intermittent and size-dependent: the small `InRelease` files succeed while the multi-megabyte `Packages` index is cut off mid-fetch, in a container and on the host alike. `Acquire::Retries` and the timeout values in the production `Dockerfile` cover the second case, and `DEBIAN_MIRROR` selects a different archive when a route is persistently bad.
+
+What is not a fix is letting the install fail: an `apt-get install ... || true` produces an image that is silently missing the compiler or Python the task assumes, and the resulting failure surfaces later as an unrelated-looking task error.
 
 ## Reading the results
 
