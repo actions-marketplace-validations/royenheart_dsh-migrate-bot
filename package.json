@@ -21,6 +21,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/unit/*.test.js dist/tests/e2e/mechanical.test.js",
     "test:e2e": "npm run build && node --test dist/tests/e2e/*.test.js",
+    "gates": "npm run build && node dist/scripts/run-gates.js",
+    "sync:readme": "npm run build && node dist/scripts/sync-readme-benchmark.js",
     "commit": "cz commit",
     "bump": "cz bump --changelog",
     "check:upstream": "./scripts/run-upstream-oracle.sh",

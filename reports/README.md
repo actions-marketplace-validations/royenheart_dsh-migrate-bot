@@ -1,8 +1,6 @@
 # Test and benchmark reports
 
-Committed records of what the test suites and the upstream benchmark actually
-produced. They exist so a change to this Action can be compared against what came
-before it, rather than judged from memory.
+Committed records of what the test suites and the upstream benchmark actually produced. They exist so a change to this Action can be compared against what came before it, rather than judged from memory.
 
 ## Layout
 
@@ -11,9 +9,7 @@ reports/upstream/<timestamp>.json   machine-readable record
 reports/upstream/<timestamp>.md     the same record, rendered for reading
 ```
 
-Both are written together by `tools/harbor/summarize.py`, which every benchmark
-entry point calls: `tools/harbor/run-benchmark.sh` for Harbor runs,
-`scripts/run-upstream-oracle.sh` for the oracle self-check.
+Both are written together by `tools/harbor/summarize.py`, which every benchmark entry point calls: `tools/harbor/run-benchmark.sh` for Harbor runs, `scripts/run-upstream-oracle.sh` for the oracle self-check.
 
 ## The record format (`schema: 1`)
 
@@ -66,10 +62,9 @@ entry point calls: `tools/harbor/run-benchmark.sh` for Harbor runs,
 
 ## How these records are consumed
 
-`docs/design/continuous-quality-tracking.md` designs the framework that turns a
-sequence of these records into a trend, compares a revision against the one
-before it, and fails a workflow when migration quality drops. The format above is
-its input contract, and both benchmark entry points already write it.
+`docs/design/continuous-quality-tracking.md` designs the framework that turns a sequence of these records into a trend, compares a revision against the one before it, and fails a workflow when migration quality drops. The format above is its input contract, and both benchmark entry points already write it.
+
+Two consumers read these records today. `scripts/sync-readme-benchmark.ts` renders the benchmark table in [README.md](../README.md#upstream-benchmark) from the newest record of each kind, and `npm run gates` fails when that table is stale, so a run that is not reflected in the README breaks the build rather than drifting. `npm run bench:upstream` writes the records themselves.
 
 ## What is not here yet
 

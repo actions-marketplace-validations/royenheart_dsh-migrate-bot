@@ -1,8 +1,6 @@
 # Continuous migration-quality tracking
 
-Research and design for measuring whether a change to this Action made migrations
-worse. Status: **planned, not implemented** — the pieces that make it cheap to add
-later are already in place, and this document records what they are and why.
+Research and design for measuring whether a change to this Action made migrations worse. Status: **planned, not implemented** — the pieces that make it cheap to add later are already in place, and this document records what they are and why.
 
 ## 1. The gap
 
@@ -16,13 +14,7 @@ The suites answer "does it work". None answers "did this commit make it worse".
 | Upstream oracle self-check | `npm run check:upstream` | the task environment scores `1.0` with the reference answer (no API cost) |
 | Upstream benchmark | `npm run bench:upstream` | this Action's agent scored on the community exam tasks |
 
-Migration quality moves for reasons none of the fast layers can see: a prompt
-rewrite, a preset or model change, a budget change, a new gate that fires too
-eagerly, a dsh version that changes an API the runner depends on. Two concrete
-examples already happened in this repository — the alignment prompt's wording
-caused an agent to write an Agent Note into a plugin repository, and a renamed
-session accessor broke the migration runner on a newer dsh. Both were found by
-running the agent, not by a test.
+Migration quality moves for reasons none of the fast layers can see: a prompt rewrite, a preset or model change, a budget change, a new gate that fires too eagerly, a dsh version that changes an API the runner depends on. Two concrete examples already happened in this repository — the alignment prompt's wording caused an agent to write an Agent Note into a plugin repository, and a renamed session accessor broke the migration runner on a newer dsh. Both were found by running the agent, not by a test.
 
 ## 2. What is already reserved
 
@@ -43,10 +35,7 @@ running the agent, not by a test.
 
 ### `benchmark-action/github-action-benchmark`
 
-The best-known "action benchmark" — a GitHub Action for continuous benchmarking
-([repository](https://github.com/benchmark-action/github-action-benchmark),
-[marketplace](https://github.com/marketplace/actions/continuous-benchmark)). Its
-model is worth copying almost wholesale:
+The best-known "action benchmark" — a GitHub Action for continuous benchmarking ([repository](https://github.com/benchmark-action/github-action-benchmark), [marketplace](https://github.com/marketplace/actions/continuous-benchmark)). Its model is worth copying almost wholesale:
 
 - It reads a benchmark output file and extracts named metrics
   (`name` / `unit` / `value`, with optional `range` for variance and `extra` for
@@ -65,21 +54,11 @@ model is worth copying almost wholesale:
 
 ### Agent-evaluation tooling
 
-Newer projects apply the same shape to non-deterministic subjects — running evals
-on every pull request and reporting what changed before merge, for example
-[agentura](https://github.com/SyntheticSynaptic/agentura) ("CI/CD checks for AI
-agents … like pytest, but for AI agents"). They differ from latency benchmarks in
-exactly the way ours differs: the subject samples a model, so a single run is not
-a measurement.
+Newer projects apply the same shape to non-deterministic subjects — running evals on every pull request and reporting what changed before merge, for example [agentura](https://github.com/SyntheticSynaptic/agentura) ("CI/CD checks for AI agents … like pytest, but for AI agents"). They differ from latency benchmarks in exactly the way ours differs: the subject samples a model, so a single run is not a measurement.
 
 ### The upstream project's own protocol
 
-The community benchmark this repository vendors states its own comparability
-rules (`benchmark/snapshots/README.md`, `benchmark/README.md`): freeze an
-immutable snapshot (commit plus an explicit task list), run each task three times
-and take the median, and publish token counts and durations next to the scores.
-Any tracking framework here must at least not contradict them, or its numbers
-cannot be compared to anything outside this repository.
+The community benchmark this repository vendors states its own comparability rules (`benchmark/snapshots/README.md`, `benchmark/README.md`): freeze an immutable snapshot (commit plus an explicit task list), run each task three times and take the median, and publish token counts and durations next to the scores. Any tracking framework here must at least not contradict them, or its numbers cannot be compared to anything outside this repository.
 
 ## 4. What transfers, and what does not
 
@@ -105,8 +84,7 @@ Two conclusions follow:
 
 ### Metric shape
 
-Feed `github-action-benchmark`'s `customBiggerIsBetter` mode, or an equivalent
-consumer, one metric per task plus one aggregate:
+Feed `github-action-benchmark`'s `customBiggerIsBetter` mode, or an equivalent consumer, one metric per task plus one aggregate:
 
 ```json
 [
@@ -116,8 +94,7 @@ consumer, one metric per task plus one aggregate:
 ]
 ```
 
-`range` is the tool's own field for variance, so a median-and-spread of N runs
-maps onto it directly; `extra` can carry the upstream commit and the task list.
+`range` is the tool's own field for variance, so a median-and-spread of N runs maps onto it directly; `extra` can carry the upstream commit and the task list.
 
 ### Storage
 
@@ -128,9 +105,7 @@ Two options, both already precedented in this repository:
 | **A — `external-data-json-path`** with `actions/cache` | nothing is committed; the JSON history lives in the workflow cache | zero repository noise, but the history is evictable and invisible in review |
 | **B — a dedicated branch** (`bench-quality`, like `dsh-migrate/state`) | the record is committed and reviewable, and `gh-pages` can render the chart | keeps `main`'s history clean; needs a push permission and a token |
 
-Recommendation: **B**, with the JSON records under `reports/upstream/` on `main`
-as they exist today, and the derived metric history on the branch. The records
-are the evidence; the chart is the view.
+Recommendation: **B**, with the JSON records under `reports/upstream/` on `main` as they exist today, and the derived metric history on the branch. The records are the evidence; the chart is the view.
 
 ### Trigger and gate
 
@@ -146,10 +121,7 @@ are the evidence; the chart is the view.
 
 ### Task subset
 
-The suite is 56 tasks and 30 are hands-on. A per-commit trigger wants a small
-fixed subset that spans the three families (`S` read-only, `M` mutable, `H`
-hands-on trap). The record already names the upstream commit, so the subset can
-be declared later without changing the schema.
+The suite is 56 tasks and 30 are hands-on. A per-commit trigger wants a small fixed subset that spans the three families (`S` read-only, `M` mutable, `H` hands-on trap). The record already names the upstream commit, so the subset can be declared later without changing the schema.
 
 ## 6. Open questions
 
@@ -176,5 +148,4 @@ be declared later without changing the schema.
 | 3 | regression gate: fail the workflow on a mean drop beyond a threshold calibrated from phase 2 | as phase 2 |
 | 4 | chart history on a branch, and the record directory pruned by policy | — |
 
-Phase 1 is worth doing early because it costs nothing per run and immediately
-makes historical records visible as a trend instead of a directory of JSON.
+Phase 1 is worth doing early because it costs nothing per run and immediately makes historical records visible as a trend instead of a directory of JSON.

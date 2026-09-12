@@ -1,16 +1,13 @@
 # Layered verification and the E2E migration pipeline
 
-How this Action verifies a plugin migration: a tiered gate stack, baseline
-attribution, an agent-authored end-to-end suite, and the budget rules that decide
-when to keep repairing and when to stop.
+How this Action verifies a plugin migration: a tiered gate stack, baseline attribution, an agent-authored end-to-end suite, and the budget rules that decide when to keep repairing and when to stop.
 
 > Status: implemented (`src/verify/`, `src/e2e/`, `src/pipeline/orchestrator.ts`).
 > This document is maintained alongside the code.
 
 ## 1. The problem
 
-The original pipeline verified in one layer: a static scan, then `npm install`,
-then the plugin's own `build` / `typecheck` / `npm test`. Three structural gaps:
+The original pipeline verified in one layer: a static scan, then `npm install`, then the plugin's own `build` / `typecheck` / `npm test`. Three structural gaps:
 
 | Gap | Consequence |
 |---|---|
@@ -55,8 +52,7 @@ then the plugin's own `build` / `typecheck` / `npm test`. Three structural gaps:
 
 ### Why V2 works: dsh already fails loud
 
-dsh's boot path ends in `assertEntriesActivated(ctx, binName)` and therefore
-detects, in one call:
+dsh's boot path ends in `assertEntriesActivated(ctx, binName)` and therefore detects, in one call:
 
 - **import failure** → `dsh: plugin(s) failed to load: <name>`
 - **`apply` throwing** → `<name>: <error>`
@@ -65,22 +61,17 @@ detects, in one call:
 
 and exits non-zero. Separately, `dsh --profile <p> --patch <overlay>
 --dump-config` verifies a layer without booting and reports unmatched patch
-targets on stderr, which catches "a row was renamed upstream and the plugin's
-layer silently stopped applying".
+targets on stderr, which catches "a row was renamed upstream and the plugin's layer silently stopped applying".
 
 **dsh has no hang watchdog**, so the probe carries its own.
 
 ### The probe is keyless
 
-The probe never calls a model: it uses a placeholder key and points the model
-route at a dead port. **Reaching the credential or transport error is the
-success signal** — it proves the plugin tree assembled and activated. Verdicts
-come from dsh's own output vocabulary; the probe does not invent a parser for it.
+The probe never calls a model: it uses a placeholder key and points the model route at a dead port. **Reaching the credential or transport error is the success signal** — it proves the plugin tree assembled and activated. Verdicts come from dsh's own output vocabulary; the probe does not invent a parser for it.
 
 ## 4. Baseline attribution
 
-A run knows two versions: `from` (the tag recorded in `seen.json`) and `to` (this
-run's target). The probe runs against both.
+A run knows two versions: `from` (the tag recorded in `seen.json`) and `to` (this run's target). The probe runs against both.
 
 ### Choosing `from`
 
@@ -123,8 +114,7 @@ run's target). The probe runs against both.
 | **Spend cap** | the existing `quota.limit`, independent of any failure cause |
 
 **A blocker needs evidence.** Missing `ATTEMPTED`, `HARNESS` or `WHY-NOT-PLUGIN`
-makes the declaration invalid, so an agent that hits a hard problem cannot
-shortcut the budget by blaming the host.
+makes the declaration invalid, so an agent that hits a hard problem cannot shortcut the budget by blaming the host.
 
 ## 6. The E2E suite branch
 
@@ -171,10 +161,7 @@ Both machine-readable and human-readable, written by the agent:
 }
 ```
 
-`lastPassedFor` is the coverage ledger: which feature was verified against which
-harness tag. `files` records what belongs to the suite so a later run can restore
-it after overlaying the plugin tree — without it the plugin's own `package.json`
-would clobber the suite's script and devDependencies.
+`lastPassedFor` is the coverage ledger: which feature was verified against which harness tag. `files` records what belongs to the suite so a later run can restore it after overlaying the plugin tree — without it the plugin's own `package.json` would clobber the suite's script and devDependencies.
 
 ### Gate escalation
 
@@ -187,15 +174,9 @@ The trigger is "a suite exists with a green baseline", not a run count.
 
 ## 7. UI end-to-end testing
 
-dsh itself tests its web client with **real Chromium + Playwright** (89 E2E files
-under `apps/web/tests/`, 77 of which launch Chromium), including geometry
-assertions such as `composer-tab-geometry` and `chat-scroll-contract`. Its README
-states the reason plainly: *"Only a real engine can show any of this. Scrolling is
-layout: jsdom reports…"*.
+dsh itself tests its web client with **real Chromium + Playwright** (89 E2E files under `apps/web/tests/`, 77 of which launch Chromium), including geometry assertions such as `composer-tab-geometry` and `chat-scroll-contract`. Its README states the reason plainly: *"Only a real engine can show any of this. Scrolling is layout: jsdom reports…"*.
 
-We use the same tooling but not their harness: their `scaffold.ts` is deliberately
-not a package, and its assertions depend on dsh-internal `data-*` conventions that
-drift between releases.
+We use the same tooling but not their harness: their `scaffold.ts` is deliberately not a package, and its assertions depend on dsh-internal `data-*` conventions that drift between releases.
 
 ### Four layers of assertion
 
@@ -207,10 +188,7 @@ drift between releases.
 | **Model vision** | a screenshot handed to a vision model as a *third opinion* | yes, and **never a gate** |
 
 **Geometry invariants** are how "text overflows its box in an edge state" gets
-caught without a baseline or a model. For every visible element: content clipped
-by its box (`scrollWidth > clientWidth`, `scrollHeight > clientHeight`), a
-bounding rect outside its parent's clip, occlusion at the element's own centre,
-and collapsed layout (zero-size or fully offscreen).
+caught without a baseline or a model. For every visible element: content clipped by its box (`scrollWidth > clientWidth`, `scrollHeight > clientHeight`), a bounding rect outside its parent's clip, occlusion at the element's own centre, and collapsed layout (zero-size or fully offscreen).
 
 ### Determinism rules (borrowed from dsh)
 
@@ -331,10 +309,7 @@ timeouts:
 
 ## 10. Watchdogs
 
-dsh has no hang protection, and this Action originally had none either: a stuck
-agent session, a hung `npm test` or a stalled harness clone would hold the job
-until the runner's own six-hour limit. `quota.limit` bounds spend and
-`loop.maxAttempts` bounds rounds; neither bounds a single hang.
+dsh has no hang protection, and this Action originally had none either: a stuck agent session, a hung `npm test` or a stalled harness clone would hold the job until the runner's own six-hour limit. `quota.limit` bounds spend and `loop.maxAttempts` bounds rounds; neither bounds a single hang.
 
 | Where | Behaviour |
 |---|---|
@@ -346,17 +321,9 @@ A watchdog is not a budget: it exists so a hang fails loudly.
 
 ## 11. Agent Notes: why two layers
 
-dsh records design decisions as Agent Notes under `.agents/notes/` in its own
-repository. An earlier version of the alignment prompt listed "Agent Notes"
-among the official design surfaces to align with, and the agent wrote one **into
-the plugin repository** — where the mechanical publish path would have committed
-it into the migration PR.
+dsh records design decisions as Agent Notes under `.agents/notes/` in its own repository. An earlier version of the alignment prompt listed "Agent Notes" among the official design surfaces to align with, and the agent wrote one **into the plugin repository** — where the mechanical publish path would have committed it into the migration PR.
 
-What the investigation established (all measured): dsh does not do this on its
-own (a neutral prompt produced only the file it was asked for); the container has
-no `AGENTS.md` and no `.agents/`; the `standard` preset ships no skills; the
-fixture declares nothing about notes. **The only place the concept appears is our
-own prompt.**
+What the investigation established (all measured): dsh does not do this on its own (a neutral prompt produced only the file it was asked for); the container has no `AGENTS.md` and no `.agents/`; the `standard` preset ships no skills; the fixture declares nothing about notes. **The only place the concept appears is our own prompt.**
 
 So two layers are used together:
 
@@ -368,13 +335,11 @@ So two layers are used together:
    `isMigrateNoisePath` (the dirty check and the staging reset) and the
    `worktreeDiff` pathspec. **Whether the model complies no longer matters.**
 
-Only `.agents/notes/` is excluded, not `.agents/` — a plugin may legitimately
-ship its own `.agents/skills/` or `.agents/config.yml`.
+Only `.agents/notes/` is excluded, not `.agents/` — a plugin may legitimately ship its own `.agents/skills/` or `.agents/config.yml`.
 
 ## 12. Acceptance and the test matrix
 
-Every mechanism has positive and counter-example fixtures under
-`tests/fixtures/plugins/`:
+Every mechanism has positive and counter-example fixtures under `tests/fixtures/plugins/`:
 
 | Mechanism | Positive | Counter-example |
 |---|---|---|
@@ -388,9 +353,7 @@ Every mechanism has positive and counter-example fixtures under
 | dsh install cache | already cached (no reinstall) / installed with a binary | npm failure / claims success but produces no binary |
 | image | the Chromium layer and all four build args are present | — |
 
-Online verification: `DSH_MIGRATE_LIVE=1 npm run test:e2e` (needs the API key in
-`.secrets.local.json`). The probes and the E2E layer themselves need **no key**
-and run offline.
+Online verification: `DSH_MIGRATE_LIVE=1 npm run test:e2e` (needs the API key in `.secrets.local.json`). The probes and the E2E layer themselves need **no key** and run offline.
 
 ### Verified live (real container, real dsh 0.1.5-rc.1)
 
@@ -401,9 +364,4 @@ and run offline.
 | web smoke | `web: server ready` from `dsh web: http://127.0.0.1:<port>/?token=…` (the session token is redacted before it reaches any report) |
 | full run with a real key | `status: migrated`, `fixAttempts: 0`; the agent authored a real suite (3 specs, support helpers, a 6-feature index with `geometry:overflow` checks) |
 
-Each of those runs exposed a defect that static work had missed: dsh reports a
-completed boot with `TRANSPORT:` (initially classified as a failure), a real
-crash is a Node stack dump rather than a named boot failure (the signature
-initially captured stack punctuation), `detectBaseBranch()` fell back to a branch
-that did not exist so the suite was never published, the overlay clobbered the
-suite's own `package.json`, and the web ready line carries a live session token.
+Each of those runs exposed a defect that static work had missed: dsh reports a completed boot with `TRANSPORT:` (initially classified as a failure), a real crash is a Node stack dump rather than a named boot failure (the signature initially captured stack punctuation), `detectBaseBranch()` fell back to a branch that did not exist so the suite was never published, the overlay clobbered the suite's own `package.json`, and the web ready line carries a live session token.

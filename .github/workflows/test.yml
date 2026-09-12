@@ -17,4 +17,7 @@ jobs:
         with:
           node-version: 24
       - run: npm install
+      # Documentation gates first: they are cheap and independent of the built
+      # artifact, so a stale index or a dead cross-reference fails in seconds.
+      - run: npm run gates
       - run: npm test
