@@ -1,0 +1,35 @@
+{#
+  Changelog template owned by this repository.
+
+  `cz`'s stock template emits only the release sections, so a full
+  `cz changelog` regeneration silently deletes the header below and only
+  `cz bump --changelog` puts sections back. Keeping the header in the template
+  makes a full regeneration reproducible instead of something to repair by hand.
+
+  Selected by `template = "CHANGELOG.j2"` in .cz.toml; `cz` resolves it from the
+  repository root.
+#}
+# Changelog
+
+All notable changes to this project are documented here.
+The format follows [Keep a Changelog](https://keepachangelog.com/).
+Entries are generated from the commit history by [Commitizen](https://commitizen-tools.github.io/commitizen/); do not edit them by hand.
+{% for entry in tree %}
+
+## {{ entry.version }}{% if entry.date %} ({{ entry.date }}){% endif %}
+
+{% for change_key, changes in entry.changes.items() %}
+
+{% if change_key %}
+### {{ change_key }}
+{% endif %}
+
+{% for change in changes %}
+{% if change.scope %}
+- **{{ change.scope }}**: {{ change.message }}
+{% elif change.message %}
+- {{ change.message }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endfor %}

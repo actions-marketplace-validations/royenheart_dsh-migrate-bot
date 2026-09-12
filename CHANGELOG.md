@@ -2,21 +2,17 @@
 
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
-Version numbers are bumped with [Commitizen](https://commitizen-tools.github.io/commitizen/) (`cz bump`).
-
-## [0.1.0] — 2026-08-25
-
-### Added
-
-- Containerized GitHub Action that migrates third-party dsh plugins.
-- Mechanical tests, overlap/alignment reviews, repair loop, Issue/PR on dirty trees.
-- dsh update gate with last-seen version stored on `dsh-migrate/state`.
+Entries are generated from the commit history by [Commitizen](https://commitizen-tools.github.io/commitizen/); do not edit them by hand.
 
 ## v0.3.1 (2026-09-11)
 
 ### Feat
 
 - **verify**: add boot, web and baseline verification gates
+
+### Docs
+
+- **bench**: vendor the community suite and score against it
 
 ## v0.3.0 (2026-09-10)
 
@@ -76,11 +72,19 @@ Version numbers are bumped with [Commitizen](https://commitizen-tools.github.io/
 
 - rename the Action to DSH Plugin Migrate Bot
 
+### Docs
+
+- add a mermaid diagram of the migrate pipeline
+
 ## v0.1.1 (2026-08-26)
 
 ### Feat
 
 - rename the default DeepSeek API secret
+
+### Docs
+
+- rewrite README for public readers
 
 ## v0.1.0 (2026-08-25)
 
