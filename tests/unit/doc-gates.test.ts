@@ -10,6 +10,40 @@ import {
   stripInlineMarkdown,
 } from '../../scripts/md.ts'
 import { parseIndexRows } from '../../scripts/verify-doc-index.ts'
+import { verifyChangelog } from '../../scripts/verify-changelog.ts'
+
+test('verify-changelog accepts a generated changelog', () => {
+  const source = '# Changelog\n\nintro\n\n## v0.2.0 (2026-01-01)\n\n### Feat\n\n- a thing\n\n## v0.1.0 (2026-01-01)\n\n### Feat\n\n- first\n'
+  const result = verifyChangelog(source)
+  assert.deepEqual(result.violations, [])
+  assert.equal(result.releases, 2)
+})
+
+test('verify-changelog allows the Unreleased section a full regeneration emits', () => {
+  const source = '# Changelog\n\n## Unreleased\n\n### Feat\n\n- pending\n\n## v0.1.0 (2026-01-01)\n\n### Feat\n\n- first\n'
+  assert.deepEqual(verifyChangelog(source).violations, [])
+})
+
+test('verify-changelog rejects a duplicated header', () => {
+  // The defect this gate exists for: a template that emits the header on both
+  // the regeneration path and the bump path renders fine and duplicates it.
+  const source = '# Changelog\n\n## v0.1.0 (2026-01-01)\n\n### Feat\n\n- first\n\n# Changelog\n\n## v0.0.9 (2026-01-01)\n\n### Feat\n\n- older\n'
+  const { violations } = verifyChangelog(source)
+  assert.equal(violations.length, 1)
+  assert.match(violations[0]?.detail ?? '', /appears 2 times/)
+})
+
+test('verify-changelog rejects a missing header and a misplaced one', () => {
+  const missing = verifyChangelog('## v0.1.0 (2026-01-01)\n')
+  assert.match(missing.violations[0]?.detail ?? '', /missing/)
+  const offset = verifyChangelog('intro\n\n# Changelog\n\n## v0.1.0 (2026-01-01)\n')
+  assert.match(offset.violations[0]?.detail ?? '', /must be the first line/)
+})
+
+test('verify-changelog rejects a hand-written section beside generated ones', () => {
+  const source = '# Changelog\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- hand written\n'
+  assert.match(verifyChangelog(source).violations[0]?.detail ?? '', /unexpected section/)
+})
 
 test('githubSlug matches GitHub, including its punctuation removal', () => {
   assert.equal(githubSlug('Security and authority are non-goals'), 'security-and-authority-are-non-goals')

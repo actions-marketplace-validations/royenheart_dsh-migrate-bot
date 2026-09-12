@@ -2,18 +2,26 @@
   Changelog template owned by this repository.
 
   `cz`'s stock template emits only the release sections, so a full
-  `cz changelog` regeneration silently deletes the header below and only
-  `cz bump --changelog` puts sections back. Keeping the header in the template
-  makes a full regeneration reproducible instead of something to repair by hand.
+  `cz changelog` regeneration deletes the header while `cz bump --changelog`
+  preserves the file it is inserting into. Neither behaviour is wrong on its
+  own; emitting the header unconditionally is, because the bump path then ends
+  up with two of them.
+
+  `cz` passes its `incremental` flag to the template, and bump sets it. So the
+  header is emitted only for a full regeneration, and the bump path keeps the
+  copy already in the file. `scripts/verify-changelog.ts` fails the build if
+  this ever produces a missing or duplicated header.
 
   Selected by `template = "CHANGELOG.j2"` in .cz.toml; `cz` resolves it from the
   repository root.
 #}
+{% if not incremental %}
 # Changelog
 
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 Entries are generated from the commit history by [Commitizen](https://commitizen-tools.github.io/commitizen/); do not edit them by hand.
+{% endif %}
 {% for entry in tree %}
 
 ## {{ entry.version }}{% if entry.date %} ({{ entry.date }}){% endif %}

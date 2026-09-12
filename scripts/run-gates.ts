@@ -9,6 +9,7 @@
  * a documentation defect fails here in seconds rather than after a full build.
  */
 
+import { verifyChangelog } from './verify-changelog.ts'
 import { verifyDocIndex } from './verify-doc-index.ts'
 import { verifyMarkdownLinks } from './verify-md-links.ts'
 import { syncReadme } from './sync-readme-benchmark.ts'
@@ -40,7 +41,16 @@ function checkReadmeBenchmark(): GateResult {
 export function runGates(): GateResult[] {
   const index = verifyDocIndex()
   const links = verifyMarkdownLinks()
+  const changelog = verifyChangelog()
   return [
+    {
+      name: 'changelog',
+      ok: changelog.violations.length === 0,
+      detail:
+        changelog.violations.length === 0
+          ? `one header, ${String(changelog.releases)} release section(s)`
+          : changelog.violations.map(v => v.detail).join('; '),
+    },
     {
       name: 'doc-index',
       ok: index.violations.length === 0,
