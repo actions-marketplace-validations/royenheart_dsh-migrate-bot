@@ -1,0 +1,13 @@
+{
+  "name": "@fixture/dsh-plugin-boot-break",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "description": "Counter-example fixture: the plugin throws while the host is activating it, so a boot probe must classify it as a failure rather than a pass.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

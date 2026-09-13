@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { parse as parseYaml } from 'yaml'
 import {
-  ANCHORED_MODES,
   DEFAULT_CONFIG,
+  PRESET_ID_PATTERN,
+  REMOVED_PRESET_IDS,
   THINKING_EFFORTS,
-  type AnchoredMode,
   type IssuePrLanguage,
   type MigrateConfig,
   type ReviewPolicy,
@@ -52,6 +52,59 @@ function asEnum<T extends string>(value: unknown, path: string, allowed: readonl
   return value as T
 }
 
+function asPresetId(value: unknown, path: string): string {
+  const id = asString(value, path)
+  if ((REMOVED_PRESET_IDS as readonly string[]).includes(id)) {
+    throw new ConfigError(
+      `${path}: preset '${id}' was installed from dsh-anchored-standard, which this Action no longer ships;`
+      + " use 'standard'",
+    )
+  }
+  if (!PRESET_ID_PATTERN.test(id)) {
+    throw new ConfigError(
+      `${path} must be a dsh agent preset id (lowercase letters, digits, and dashes;`
+      + ' shipped ids: standard, minimal, cordis, ptc)',
+    )
+  }
+  return id
+}
+
+function asBoolean(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') throw new ConfigError(`${path} must be a boolean`)
+  return value
+}
+
+/** Git ref name with the characters git refuses, plus the traversal cases. */
+function asBranchName(value: unknown, path: string): string {
+  const name = asString(value, path)
+  if (/[\s~^:?*[\\]/.test(name) || name.includes('..') || name.startsWith('-') || name.endsWith('/')) {
+    throw new ConfigError(`${path} must be a valid git branch name`)
+  }
+  return name
+}
+
+/** Repository-relative directory the Action creates the E2E suite in. */
+function asRelativeDir(value: unknown, path: string): string {
+  const dir = asString(value, path)
+  if (dir.startsWith('/') || dir.split('/').includes('..')) {
+    throw new ConfigError(`${path} must be a repository-relative path without ".."`)
+  }
+  return dir.replace(/^\.\//, '').replace(/\/+$/, '')
+}
+
+function asVerifyStep(
+  raw: unknown,
+  path: string,
+  fallback: { enabled: boolean; timeoutMs: number },
+): { enabled: boolean; timeoutMs: number } {
+  if (raw === undefined) return fallback
+  if (!isRecord(raw)) throw new ConfigError(`${path} must be a mapping`)
+  return {
+    enabled: raw.enabled === undefined ? fallback.enabled : asBoolean(raw.enabled, `${path}.enabled`),
+    timeoutMs: raw.timeoutMs === undefined ? fallback.timeoutMs : asInt(raw.timeoutMs, `${path}.timeoutMs`, 1000),
+  }
+}
+
 /**
  * Merge a parsed YAML object onto the shipped defaults and reject unknown shapes.
  * @param raw - decoded YAML root
@@ -68,6 +121,12 @@ export function parseConfig(raw: unknown): MigrateConfig {
       watch: { ...DEFAULT_CONFIG.watch },
       secrets: { ...DEFAULT_CONFIG.secrets },
       quota: { ...DEFAULT_CONFIG.quota },
+      verify: {
+        boot: { ...DEFAULT_CONFIG.verify.boot },
+        web: { ...DEFAULT_CONFIG.verify.web },
+      },
+      e2e: { ...DEFAULT_CONFIG.e2e },
+      timeouts: { ...DEFAULT_CONFIG.timeouts },
     }
   }
   if (!isRecord(raw)) throw new ConfigError('config root must be a mapping')
@@ -113,7 +172,7 @@ export function parseConfig(raw: unknown): MigrateConfig {
       dsh.reasoningEffort = asEnum(dshRaw.reasoningEffort, 'dsh.reasoningEffort', THINKING_EFFORTS)
     }
     if (dshRaw.mode !== undefined) {
-      dsh.mode = asEnum(dshRaw.mode, 'dsh.mode', ANCHORED_MODES) as AnchoredMode
+      dsh.mode = asPresetId(dshRaw.mode, 'dsh.mode')
     }
   }
 
@@ -164,6 +223,39 @@ export function parseConfig(raw: unknown): MigrateConfig {
     if (quotaRaw.limit !== undefined) quota.limit = asPositiveNumber(quotaRaw.limit, 'quota.limit')
   }
 
+  const verifyRaw = raw.verify
+  const verify: MigrateConfig['verify'] = {
+    boot: { ...DEFAULT_CONFIG.verify.boot },
+    web: { ...DEFAULT_CONFIG.verify.web },
+  }
+  if (verifyRaw !== undefined) {
+    if (!isRecord(verifyRaw)) throw new ConfigError('verify must be a mapping')
+    verify.boot = asVerifyStep(verifyRaw.boot, 'verify.boot', verify.boot)
+    verify.web = asVerifyStep(verifyRaw.web, 'verify.web', verify.web)
+  }
+
+  const e2eRaw = raw.e2e
+  const e2e: MigrateConfig['e2e'] = { ...DEFAULT_CONFIG.e2e }
+  if (e2eRaw !== undefined) {
+    if (!isRecord(e2eRaw)) throw new ConfigError('e2e must be a mapping')
+    if (e2eRaw.enabled !== undefined) e2e.enabled = asBoolean(e2eRaw.enabled, 'e2e.enabled')
+    if (e2eRaw.forceRebase !== undefined) e2e.forceRebase = asBoolean(e2eRaw.forceRebase, 'e2e.forceRebase')
+    if (e2eRaw.subsetFirst !== undefined) e2e.subsetFirst = asBoolean(e2eRaw.subsetFirst, 'e2e.subsetFirst')
+    if (e2eRaw.branch !== undefined) e2e.branch = asBranchName(e2eRaw.branch, 'e2e.branch')
+    if (e2eRaw.baseRef !== undefined) e2e.baseRef = asString(e2eRaw.baseRef, 'e2e.baseRef')
+    if (e2eRaw.dir !== undefined) e2e.dir = asRelativeDir(e2eRaw.dir, 'e2e.dir')
+    if (e2eRaw.gate !== undefined) e2e.gate = asEnum(e2eRaw.gate, 'e2e.gate', ['advisory', 'blocking'] as const)
+  }
+
+  const timeoutsRaw = raw.timeouts
+  const timeouts: MigrateConfig['timeouts'] = { ...DEFAULT_CONFIG.timeouts }
+  if (timeoutsRaw !== undefined) {
+    if (!isRecord(timeoutsRaw)) throw new ConfigError('timeouts must be a mapping')
+    for (const key of ['agentMs', 'commandMs', 'checkoutMs'] as const) {
+      if (timeoutsRaw[key] !== undefined) timeouts[key] = asInt(timeoutsRaw[key], `timeouts.${key}`, 1000)
+    }
+  }
+
   return {
     dshVersion: raw.dshVersion === undefined ? DEFAULT_CONFIG.dshVersion : asString(raw.dshVersion, 'dshVersion'),
     review: { policy },
@@ -175,6 +267,9 @@ export function parseConfig(raw: unknown): MigrateConfig {
     watch: { enabled: watchEnabled },
     secrets: { apiKeyEnv },
     quota,
+    verify,
+    e2e,
+    timeouts,
   }
 }
 

@@ -11,6 +11,12 @@ function git(args: readonly string[], cwd: string): SpawnSyncReturns<string> {
 /**
  * Paths that live in the plugin worktree for convenience (reports, local
  * secrets) but must not count as a dirty migration or be committed.
+ *
+ * `.agents/notes/` is the harness's own Agent Notes tree. The prompts tell the
+ * agent to read those notes as evidence and never to write them into a plugin
+ * repository, but a language model is not a guarantee: ignoring the path here
+ * makes "an Agent Note never reaches a migration pull request" a structural
+ * fact rather than a hope.
  */
 export function isMigrateNoisePath(relativePath: string): boolean {
   const normalized = relativePath.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '')
@@ -20,6 +26,8 @@ export function isMigrateNoisePath(relativePath: string): boolean {
   return file === '.dsh-migrate'
     || file.startsWith('.dsh-migrate/')
     || file === '.secrets.local.json'
+    || file === '.agents/notes'
+    || file.startsWith('.agents/notes/')
 }
 
 function porcelainPath(line: string): string {
@@ -38,8 +46,11 @@ function gitDir(cwd: string): string | undefined {
 }
 
 /**
- * Ignore `.dsh-migrate/` in this clone without committing a `.gitignore`.
- * Reports stay on disk for Action artifacts.
+ * Ignore the migrate-owned paths in this clone without committing a
+ * `.gitignore`: `.dsh-migrate/` (reports stay on disk for Action artifacts),
+ * `.secrets.local.json`, and the harness Agent Notes tree, which the prompts
+ * tell the agent never to write but which is not worth trusting to a language
+ * model when an ignore rule makes it structural.
  */
 export function ensureMigrateGitExclude(cwd: string): void {
   const dir = gitDir(cwd)
@@ -52,6 +63,7 @@ export function ensureMigrateGitExclude(cwd: string): void {
   const additions: string[] = []
   if (!lines.some(line => line.trim() === '.dsh-migrate/')) additions.push('.dsh-migrate/')
   if (!lines.some(line => line.trim() === '.secrets.local.json')) additions.push('.secrets.local.json')
+  if (!lines.some(line => line.trim() === '.agents/notes/')) additions.push('.agents/notes/')
   if (additions.length === 0) return
   const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n'
   writeFileSync(exclude, `${existing}${prefix}${additions.join('\n')}\n`, 'utf8')
@@ -103,7 +115,10 @@ export function stagePluginChanges(cwd: string): void {
  * @param cwd - git repository root
  */
 export function worktreeDiff(cwd: string): string {
-  const result = git(['diff', 'HEAD', '--', '.', ':!.dsh-migrate', ':!.secrets.local.json'], cwd)
+  const result = git(
+    ['diff', 'HEAD', '--', '.', ':!.dsh-migrate', ':!.secrets.local.json', ':!.agents/notes'],
+    cwd,
+  )
   if (result.status !== 0) {
     throw new Error(`git diff failed: ${result.stderr}`)
   }

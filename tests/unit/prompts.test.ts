@@ -55,3 +55,26 @@ test('resolvePrompts ships the new absorption default', () => {
   assert.match(prompts.absorption, /documented product form/)
   assert.match(prompts.alignment, /documented unique behavior complete/)
 })
+
+test('the alignment prompt forbids creating Agent Notes in a third-party plugin repo', () => {
+  // Observed live: an agent left `.agents/notes/implemented/...` in the plugin
+  // tree. Nothing in dsh, the container, the preset, or the fixtures asks for
+  // that — the only mention of the convention is this prompt, so it now states
+  // the boundary explicitly.
+  assert.match(ALIGNMENT_PROMPT, /never write design-note files into this third-party plugin repository/)
+  assert.match(ALIGNMENT_PROMPT, /read them as evidence/i)
+  assert.doesNotMatch(ALIGNMENT_PROMPT, /slots, settings, Agent Notes\)/)
+  // The repair loop edits the same tree and must not reintroduce the artifact.
+  assert.match(FIX_PROMPT, /Never write design notes, Agent Notes, or other documentation files/)
+})
+
+test('the Agent Notes boundary does not remove the report every stage must produce', () => {
+  // The report is captured from stdout and stored by the runner; the file
+  // prohibition must never be read as "produce nothing".
+  for (const prompt of [ABSORPTION_PROMPT, ALIGNMENT_PROMPT, FIX_PROMPT]) {
+    assert.match(prompt, /Write a markdown report/)
+    assert.match(prompt, /The report is the last markdown document you print/)
+  }
+  assert.match(ALIGNMENT_PROMPT, /printing it is the deliverable/)
+  assert.match(ALIGNMENT_PROMPT, /never written into the plugin tree/)
+})

@@ -18,22 +18,32 @@ export interface MechanicalResult {
 export interface MechanicalOptions {
   /** Resolved harness version (no `dsh-v` prefix), e.g. `0.1.1-rc.2`. */
   dshVersion?: string
+  /**
+   * Watchdog for each command. A hung `npm test` must not hold the job until
+   * the runner's own six-hour limit.
+   */
+  timeoutMs?: number
 }
 
 function runCommand(
   command: string,
   cwd: string,
   extraEnv: NodeJS.ProcessEnv = {},
+  timeoutMs?: number,
 ): { ok: boolean; output: string } {
   const result = spawnSync(command, {
     cwd,
     shell: true,
     encoding: 'utf8',
     env: { ...process.env, ...extraEnv },
+    ...(timeoutMs === undefined ? {} : { timeout: timeoutMs, killSignal: 'SIGKILL' as const }),
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-  const ok = result.status === 0
-  return { ok, output }
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
+    const seconds = Math.round((timeoutMs ?? 0) / 1000)
+    return { ok: false, output: `${output}\nerror: command timed out after ${seconds}s (watchdog): ${command}` }
+  }
+  return { ok: result.status === 0, output }
 }
 
 function readPackageJson(root: string): unknown {
@@ -71,10 +81,11 @@ function runList(
   commands: readonly string[],
   root: string,
   extraEnv: NodeJS.ProcessEnv,
+  timeoutMs: number | undefined,
 ): MechanicalResult {
   const logs: string[] = []
   for (const command of commands) {
-    const result = runCommand(command, root, extraEnv)
+    const result = runCommand(command, root, extraEnv, timeoutMs)
     logs.push(`$ ${command}\n${result.output}`)
     if (!result.ok) {
       const log = logs.join('\n')
@@ -101,9 +112,10 @@ export function runMechanical(
     ? {}
     : { DSH_MIGRATE_TARGET_VERSION: options.dshVersion }
   const prefix = installCommands(root, pkg, options.dshVersion)
+  const timeoutMs = options.timeoutMs
 
   if (config.tests !== undefined) {
-    return runList([...prefix, ...config.tests.commands], root, extraEnv)
+    return runList([...prefix, ...config.tests.commands], root, extraEnv, timeoutMs)
   }
 
   const logs: string[] = []
@@ -130,7 +142,7 @@ export function runMechanical(
   }
   if (scripts.test !== undefined) commands.push('npm test')
 
-  const ran = runList(commands, root, extraEnv)
+  const ran = runList(commands, root, extraEnv, timeoutMs)
   if (logs.length === 0) return ran
   return {
     ok: ran.ok,

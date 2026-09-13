@@ -1,6 +1,6 @@
 {
   "name": "@royenheart/dsh-migrate-action",
-  "version": "0.2.3",
+  "version": "0.3.2",
   "description": "Containerized GitHub Action that migrates third-party DeepSeek Harness plugins across harness releases.",
   "license": "MIT",
   "type": "module",
@@ -21,8 +21,12 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/unit/*.test.js dist/tests/e2e/mechanical.test.js",
     "test:e2e": "npm run build && node --test dist/tests/e2e/*.test.js",
+    "gates": "npm run build && node dist/scripts/run-gates.js",
+    "sync:readme": "npm run build && node dist/scripts/sync-readme-benchmark.js",
     "commit": "cz commit",
-    "bump": "cz bump --changelog"
+    "bump": "cz bump --changelog",
+    "check:upstream": "./scripts/run-upstream-oracle.sh",
+    "bench:upstream": "./tools/harbor/run-benchmark.sh"
   },
   "dependencies": {
     "typescript": "^5.9.2",

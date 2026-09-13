@@ -5,9 +5,9 @@ import { DEFAULT_CONFIG } from '../../src/config/schema.ts'
 
 test('empty config uses defaults', () => {
   const config = parseConfig({})
-  assert.equal(config.dsh.model, 'deepseek-v4-pro')
+  assert.equal(config.dsh.model, 'deepseek-v4-flash')
   assert.equal(config.dsh.reasoningEffort, 'max')
-  assert.equal(config.dsh.mode, 'anchored-standard')
+  assert.equal(config.dsh.mode, 'standard')
   assert.equal(config.review.policy, 'always')
   assert.equal(config.issuePr.language, 'en')
   assert.equal(config.watch.enabled, true)
@@ -35,13 +35,24 @@ test('defaults stay intact when only language is set', () => {
 
 test('dsh overrides and loop bounds are accepted', () => {
   const config = parseConfig({
-    dsh: { mode: 'zero-anchored-standard', reasoningEffort: 'high' },
+    dsh: { mode: 'minimal', reasoningEffort: 'high' },
     loop: { maxAttempts: 2 },
   })
-  assert.equal(config.dsh.mode, 'zero-anchored-standard')
+  assert.equal(config.dsh.mode, 'minimal')
   assert.equal(config.dsh.reasoningEffort, 'high')
   assert.equal(config.dsh.model, DEFAULT_CONFIG.dsh.model)
   assert.equal(config.loop.maxAttempts, 2)
+})
+
+test('rejects a dsh.mode that is not a preset id', () => {
+  assert.throws(() => parseConfig({ dsh: { mode: 'Standard Mode' } }), /dsh\.mode/)
+})
+
+test('names the removed anchored presets so old configs point at standard', () => {
+  assert.throws(
+    () => parseConfig({ dsh: { mode: 'anchored-standard' } }),
+    /no longer ships; use 'standard'/,
+  )
 })
 
 test('watch.enabled can be turned off', () => {
@@ -69,4 +80,46 @@ test('quota.limit is accepted', () => {
 
 test('rejects a non-positive quota.limit', () => {
   assert.throws(() => parseConfig({ quota: { limit: 0 } }), /quota.limit/)
+})
+
+test('verification layers are on by default with a watchdog', () => {
+  const config = parseConfig({})
+  assert.equal(config.verify.boot.enabled, true)
+  assert.equal(config.verify.boot.timeoutMs, 180_000)
+  assert.equal(config.verify.web.enabled, true)
+})
+
+test('a boot probe watchdog below a second is rejected', () => {
+  assert.throws(() => parseConfig({ verify: { boot: { timeoutMs: 10 } } }), /verify\.boot\.timeoutMs/)
+})
+
+test('a non-boolean verify flag is rejected', () => {
+  assert.throws(() => parseConfig({ verify: { boot: { enabled: 'yes' } } }), /verify\.boot\.enabled/)
+})
+
+test('the E2E suite defaults to its own branch, rebased, advisory', () => {
+  const config = parseConfig({})
+  assert.equal(config.e2e.enabled, true)
+  assert.equal(config.e2e.branch, 'dsh-migrate/e2e')
+  assert.equal(config.e2e.forceRebase, true)
+  assert.equal(config.e2e.baseRef, 'migration')
+  assert.equal(config.e2e.gate, 'advisory')
+  assert.equal(config.e2e.subsetFirst, true)
+})
+
+test('the gate accepts blocking and nothing else', () => {
+  assert.equal(parseConfig({ e2e: { gate: 'blocking' } }).e2e.gate, 'blocking')
+  assert.throws(() => parseConfig({ e2e: { gate: 'warn' } }), /e2e\.gate/)
+})
+
+test('an unusable branch name is rejected before it reaches git', () => {
+  assert.throws(() => parseConfig({ e2e: { branch: 'bad branch' } }), /e2e\.branch/)
+  assert.throws(() => parseConfig({ e2e: { branch: 'a..b' } }), /e2e\.branch/)
+  assert.equal(parseConfig({ e2e: { branch: 'ci/e2e-suite' } }).e2e.branch, 'ci/e2e-suite')
+})
+
+test('the suite directory cannot escape the repository', () => {
+  assert.throws(() => parseConfig({ e2e: { dir: '../outside' } }), /e2e\.dir/)
+  assert.throws(() => parseConfig({ e2e: { dir: '/abs' } }), /e2e\.dir/)
+  assert.equal(parseConfig({ e2e: { dir: 'tests/e2e/' } }).e2e.dir, 'tests/e2e')
 })

@@ -3,7 +3,7 @@
 - id: agent-default-model
   config:
     provider: !!js process.env.DSH_MIGRATE_PROVIDER || 'deepseek-official'
-    model: !!js process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-pro'
+    model: !!js process.env.DSH_MIGRATE_MODEL || 'deepseek-v4-flash'
 
 - id: llm-deepseek
   config:
@@ -17,7 +17,7 @@
     - id: agent-presets
       name: '@deepseek-ai/dsh-agent-presets'
       config:
-        default: anchored-standard
+        default: standard
 
     - id: dsh-migrate-runner
       name: './migrate-runner.js'

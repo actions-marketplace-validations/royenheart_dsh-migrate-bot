@@ -1,5 +1,5 @@
 # DeepSeek Harness plugin migrator. Build context is the repo root.
-# Pins: Node 24 (dsh needs >=22.19), @deepseek-ai/dsh CLI, anchored-standard modes.
+# Pins: Node 24 (dsh needs >=22.19), @deepseek-ai/dsh CLI.
 ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 
@@ -8,9 +8,18 @@ ARG DSH_CLI_VERSION=0.1.1-rc.2
 ARG DSH_TARBALL=
 ARG DEBIAN_MIRROR=
 ARG NPM_REGISTRY=
+# Optional browser-download mirror (Playwright honors it as an env var).
+ARG PLAYWRIGHT_DOWNLOAD_HOST=
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# apt's defaults assume a fast, reliable route: one attempt with short timeouts,
+# which turns a momentarily slow mirror into a failed build. Raise its own retry
+# and timeout budget before the first fetch — apt's documented knobs, not a
+# security bypass.
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "120";\nAcquire::https::Timeout "120";\n' \
+      > /etc/apt/apt.conf.d/99-network-resilience
 
 RUN set -eux; \
   if [ -n "$DEBIAN_MIRROR" ]; then \
@@ -20,7 +29,7 @@ RUN set -eux; \
   apt-get install -y --no-install-recommends git ca-certificates python3 make g++; \
   rm -rf /var/lib/apt/lists/*
 
-# Global dsh + modes change rarely; keep them above COPY src so CLI edits rebuild quickly.
+# Global dsh changes rarely; keep it above COPY src so CLI edits rebuild quickly.
 RUN set -eux; \
   if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi; \
   if [ -n "$DSH_TARBALL" ]; then \
@@ -29,7 +38,16 @@ RUN set -eux; \
     npm install -g --omit=dev "@deepseek-ai/dsh@${DSH_CLI_VERSION}"; \
   fi
 
-RUN git clone --depth 1 https://github.com/xiaobright/dsh-anchored-standard.git /opt/dsh-anchored-standard
+# Headless Chromium for the agent-authored end-to-end suite. Browsers live in a
+# shared path so a plugin's own playwright resolves them without re-downloading;
+# the system libraries come from --with-deps.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN set -eux; \
+  npm install -g playwright@1.61.1; \
+  if [ -n "$PLAYWRIGHT_DOWNLOAD_HOST" ]; then export PLAYWRIGHT_DOWNLOAD_HOST; fi; \
+  apt-get update; \
+  playwright install --with-deps chromium || playwright install --with-deps chromium; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/dsh-migrate
 COPY package.json package-lock.json tsconfig.json ./
@@ -47,14 +65,12 @@ RUN set -eux; \
   npm run build; \
   npm prune --omit=dev; \
   chmod +x /opt/dsh-migrate/container/setup-profile.sh /opt/dsh-migrate/container/entrypoint.sh; \
-  DSH_HOME=/opt/dsh-home DSH_ANCHORED_STANDARD=/opt/dsh-anchored-standard \
-    /opt/dsh-migrate/container/setup-profile.sh; \
+  DSH_HOME=/opt/dsh-home /opt/dsh-migrate/container/setup-profile.sh; \
   ln -sf /opt/dsh-migrate/dist/src/cli.js /usr/local/bin/dsh-migrate; \
   chmod +x /opt/dsh-migrate/dist/src/cli.js /opt/dsh-migrate/container/entrypoint.sh
 
 ENV DSH_HOME=/opt/dsh-home
 ENV DSH_MIGRATE_APP_ROOT=/opt/dsh-migrate
-ENV DSH_ANCHORED_STANDARD=/opt/dsh-anchored-standard
 
 WORKDIR /github/workspace
 ENTRYPOINT ["/opt/dsh-migrate/container/entrypoint.sh"]

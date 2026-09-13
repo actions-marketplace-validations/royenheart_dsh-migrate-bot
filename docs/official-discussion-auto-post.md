@@ -1,19 +1,12 @@
 # Future: auto-open official harness discussions
 
-Status: **deferred**. The Action does not create topics on
-[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness).
-When a migrate run still needs a dsh-side patch and no official issue / PR /
-discussion exists, it writes a discussion draft, comments that draft on the
-plugin Issue, then posts a follow-up comment with an Ideas “new discussion”
-link. A human copies the draft and submits it.
+Status: **deferred**. The Action does not create topics on [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness). When a migrate run still needs a dsh-side patch and no official issue / PR / discussion exists, it writes a discussion draft, comments that draft on the plugin Issue, then posts a follow-up comment with an Ideas “new discussion” link. A human copies the draft and submits it.
 
-This note records why unattended posting was sketched and then withdrawn, so
-the work can be resumed without repeating the same design dead ends.
+This note records why unattended posting was sketched and then withdrawn, so the work can be resumed without repeating the same design dead ends.
 
 ## What shipped instead
 
-For each `.dsh-migrate/patch-reports/<slug>/report.md` that has **no** official
-`deepseek-ai/deepseek-harness` issue / PR / discussion URL:
+For each `.dsh-migrate/patch-reports/<slug>/report.md` that has **no** official `deepseek-ai/deepseek-harness` issue / PR / discussion URL:
 
 1. The main Issue comment still includes the index table and the fenced draft.
 2. A second Issue comment (a follow-up under that draft) links to
@@ -22,13 +15,9 @@ For each `.dsh-migrate/patch-reports/<slug>/report.md` that has **no** official
 
 The category is Ideas. The title is a best-effort query parameter. GitHub does
 **not** document `title` / `body` on `discussions/new`, and `body=` does not
-reliably fill the form. A full patch appendix would also exceed URL limits.
-The follow-up therefore tells the reader to paste the draft from the previous
-comment.
+reliably fill the form. A full patch appendix would also exceed URL limits. The follow-up therefore tells the reader to paste the draft from the previous comment.
 
-No extra secret or workflow permission is required. The built-in
-`GITHUB_TOKEN` (plus **Allow GitHub Actions to create and approve pull
-requests** on the plugin repo) is enough.
+No extra secret or workflow permission is required. The built-in `GITHUB_TOKEN` (plus **Allow GitHub Actions to create and approve pull requests** on the plugin repo) is enough.
 
 ## What a future auto-post would do
 
@@ -43,20 +32,13 @@ If a later change opts in to creating the official topic automatically:
 4. Put the new discussion URL on the plugin Issue (table and/or follow-up)
    so maintainers can track it.
 
-There is no public REST create endpoint; GraphQL is required
-(`repositoryId`, `categoryId`, `title`, `body`).
+There is no public REST create endpoint; GraphQL is required (`repositoryId`, `categoryId`, `title`, `body`).
 
 ## Why it is not enabled
 
-`GITHUB_TOKEN` is minted for the **plugin** repository. It can open the
-plugin Issue and PR. It cannot write Discussions on
-`deepseek-ai/deepseek-harness`. Workflow `permissions:` and the “create and
-approve pull requests” checkbox only affect that same plugin repo.
+`GITHUB_TOKEN` is minted for the **plugin** repository. It can open the plugin Issue and PR. It cannot write Discussions on `deepseek-ai/deepseek-harness`. Workflow `permissions:` and the “create and approve pull requests” checkbox only affect that same plugin repo.
 
-To create a discussion on the official public repo from CI, GitHub currently
-requires a **classic PAT** with `public_repo` belonging to a user who may
-start Ideas topics there. That scope can write every public repository the
-account can write, not “discussions only.”
+To create a discussion on the official public repo from CI, GitHub currently requires a **classic PAT** with `public_repo` belonging to a user who may start Ideas topics there. That scope can write every public repository the account can write, not “discussions only.”
 
 Narrower credentials do not reach a third-party repo:
 
@@ -66,9 +48,7 @@ Narrower credentials do not reach a third-party repo:
 | GitHub App installation token | Only works on repos where the app is installed. The official org would have to install it. |
 | Plugin-repo `GITHUB_TOKEN` | Scoped to the plugin repo. |
 
-A dedicated bot account plus a classic PAT would shrink blast radius (the bot
-owns nothing else) but is still a classic PAT. That is an operational choice,
-not a smaller GitHub permission.
+A dedicated bot account plus a classic PAT would shrink blast radius (the bot owns nothing else) but is still a classic PAT. That is an operational choice, not a smaller GitHub permission.
 
 ## If this is revisited
 

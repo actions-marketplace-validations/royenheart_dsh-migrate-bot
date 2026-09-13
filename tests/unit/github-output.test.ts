@@ -30,7 +30,7 @@ test('dsh runner passes profile, prompt, and DSH_MIGRATE_* env', async () => {
   const runner = createDshRunner({
     spawnImpl: async (args, options) => {
       captured = { args, env: options.env }
-      return { code: 0, stdout: '# Verdict\nkeep\n', stderr: '' }
+      return { code: 0, stdout: '# Verdict\nkeep\n', stderr: '', timedOut: false }
     },
   })
   const result = await runner.run({
@@ -39,17 +39,17 @@ test('dsh runner passes profile, prompt, and DSH_MIGRATE_* env', async () => {
     workdir: process.cwd(),
     dsh: {
       provider: 'deepseek-official',
-      model: 'deepseek-v4-pro',
+      model: 'deepseek-v4-flash',
       thinking: 'enabled',
       reasoningEffort: 'max',
-      mode: 'anchored-standard',
+      mode: 'standard',
     },
     apiKey: 'sk-test',
   })
   assert.equal(result.report, '# Verdict\nkeep')
   assert.deepEqual(captured?.args, ['--profile', 'migrate', 'review the plugin'])
   assert.equal(captured?.env.DEEPSEEK_API_KEY, 'sk-test')
-  assert.equal(captured?.env.DSH_MIGRATE_MODEL, 'deepseek-v4-pro')
+  assert.equal(captured?.env.DSH_MIGRATE_MODEL, 'deepseek-v4-flash')
   assert.equal(captured?.env.DSH_MIGRATE_TASK, 'review the plugin')
-  assert.equal(captured?.env.DSH_MIGRATE_MODE, 'anchored-standard')
+  assert.equal(captured?.env.DSH_MIGRATE_MODE, 'standard')
 })

@@ -1,9 +1,11 @@
 [tool.commitizen]
-name = "cz_conventional_commits"
+name = "cz_customize"
 version_provider = "commitizen"
-version = "0.2.3"
+version = "0.3.2"
 tag_format = "v$version"
 version_scheme = "semver"
+# Repo-owned so a full `cz changelog` regeneration reproduces the header too.
+template = "CHANGELOG.j2"
 update_changelog_on_bump = true
 major_version_zero = true
 version_files = [
@@ -11,3 +13,71 @@ version_files = [
     "package.json:version",
     "package-lock.json:version",
 ]
+
+# `cz_conventional_commits` hardcodes which commit types can reach the
+# changelog: its `commit_parser` recognizes only feat/fix/refactor/perf, and no
+# setting overrides that attribute. Documentation is a real deliverable here —
+# the benchmark and constraint docs are part of the product — so this rule
+# exists solely to make `docs` a first-class changelog type. Bump semantics are
+# unchanged: this rule falls back to the same `defaults.BUMP_*` objects the
+# conventional rule uses.
+[tool.commitizen.customize]
+example = "docs(bench): score the suite against a pinned snapshot"
+schema = "<type>(<scope>): <subject>\n<BLANK LINE>\n<body>\n<BLANK LINE>\n<footer>"
+schema_pattern = "(?s)(build|bump|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\(\\S+\\))?!?: ([^\\n\\r]+)((\\n\\n.*)|(\\s*))?$"
+
+# Only `docs` joins the recognized set. chore/ci/build/style/test/bump stay
+# unparsed and therefore stay out of the changelog, exactly as before.
+commit_parser = "^((?P<change_type>feat|fix|docs|refactor|perf|BREAKING CHANGE)(?:\\((?P<scope>[^()\\r\\n]*)\\)|\\()?(?P<breaking>!)?|\\w+!):\\s(?P<message>.*)?"
+changelog_pattern = "^(feat|fix|docs|refactor|perf)(\\(.*\\))?!?:.*"
+
+change_type_map = { feat = "Feat", fix = "Fix", docs = "Docs", refactor = "Refactor", perf = "Perf" }
+change_type_order = ["BREAKING CHANGE", "Feat", "Fix", "Docs", "Refactor", "Perf"]
+
+message_template = """{{change_type}}{% if scope %}({{scope}}){% endif %}{% if is_breaking_change %}!{% endif %}: {{subject}}{% if body %}
+
+{{body}}{% endif %}{% if footer %}
+
+{{footer}}{% endif %}"""
+
+[[tool.commitizen.customize.questions]]
+type = "list"
+name = "change_type"
+message = "Select the type of change you are committing"
+choices = [
+    { value = "fix", name = "fix: A bug fix. Correlates with PATCH in SemVer", key = "x" },
+    { value = "feat", name = "feat: A new feature. Correlates with MINOR in SemVer", key = "f" },
+    { value = "docs", name = "docs: Documentation only changes", key = "d" },
+    { value = "style", name = "style: Changes that do not affect the meaning of the code", key = "s" },
+    { value = "refactor", name = "refactor: A code change that neither fixes a bug nor adds a feature", key = "r" },
+    { value = "perf", name = "perf: A code change that improves performance", key = "p" },
+    { value = "test", name = "test: Adding missing or correcting existing tests", key = "t" },
+    { value = "build", name = "build: Changes that affect the build system or external dependencies", key = "b" },
+    { value = "ci", name = "ci: Changes to CI configuration files and scripts", key = "c" },
+]
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "scope"
+message = "What is the scope of this change? (class or file name): (press [enter] to skip)\n"
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "subject"
+message = "Write a short and imperative summary of the code changes: (lower case and no period)\n"
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "body"
+message = "Provide additional contextual information about the code changes: (press [enter] to skip)\n"
+
+[[tool.commitizen.customize.questions]]
+type = "confirm"
+name = "is_breaking_change"
+message = "Is this a BREAKING CHANGE? Correlates with MAJOR in SemVer"
+default = false
+
+[[tool.commitizen.customize.questions]]
+type = "input"
+name = "footer"
+message = "Footer. Information about Breaking Changes and reference issues that this commit closes: (press [enter] to skip)\n"
